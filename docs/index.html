@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Academic Writing Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docx@9.5.1/build/index.umd.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/openai@4.104.0/index.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -27,35 +23,71 @@
       }
     }
   </script>
+  <link rel="stylesheet" href="https://unpkg.com/lucide-static@latest/font/lucide.css">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', sans-serif; }
+    body { font-family: 'Inter', system-ui, sans-serif; }
     .fade-in { animation: fadeIn 0.3s ease-out; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .spinner { animation: spin 1s linear infinite; }
+    .spin { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    /* Inline SVG icons */
+    .icon { display: inline-block; width: 1em; height: 1em; vertical-align: middle; }
   </style>
 </head>
 <body class="bg-white text-gray-900">
   <div id="app"></div>
-
   <script>
+    // ============ ICONS (inline SVG) ============
+    const ICONS = {
+      'layout-dashboard': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>',
+      'pen-tool': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l9.586-9.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.5-1.5"/><path d="m2 22 3-9"/><path d="m15 2 6 6"/><path d="m2 2 6 6"/></svg>',
+      'book-open': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M16 12h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-1a7 7 0 0 0-7-7 7 7 0 0 0-7 7H1a1 1 0 0 1-1-1V13a1 1 0 0 1 1-1h1a7 7 0 0 0 7 7 7 7 0 0 0 7-7V12"/></svg>',
+      'check-circle': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>',
+      'file-text': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
+      'settings': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+      'chevron-left': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+      'chevron-right': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+      'chevron-down': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+      'chevron-up': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
+      'alert-circle': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
+      'lightbulb': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>',
+      'copy': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+      'trash-2': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>',
+      'plus': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
+      'arrow-right': '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+      'download': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>',
+      'save': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>',
+      'key': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>',
+      'building': '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>',
+      'sparkles': '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>',
+    };
+
+    function icon(name, size) {
+      const svg = ICONS[name] || '';
+      if (!size) return svg;
+      return svg.replace('width="20"', 'width="'+size+'"').replace('height="20"', 'height="'+size+'"')
+                .replace('width="18"', 'width="'+size+'"').replace('height="18"', 'height="'+size+'"')
+                .replace('width="16"', 'width="'+size+'"').replace('height="16"', 'height="'+size+'"')
+                .replace('width="14"', 'width="'+size+'"').replace('height="14"', 'height="'+size+'"')
+                .replace('width="12"', 'width="'+size+'"').replace('height="'+size+'"', 'height="'+size+'"');
+    }
+
     // ============ STATE ============
-    let state = {
+    var state = {
       activeTool: 'dashboard',
       sidebarCollapsed: false,
       apiKey: localStorage.getItem('awa-api-key') || '',
       university: localStorage.getItem('awa-university') || '',
       citationStyle: localStorage.getItem('awa-citation') || 'apa',
-      // Writing tool
       writingText: '',
       writingContext: 'academic',
       suggestions: [],
       writingLoading: false,
       selectedSuggestion: null,
       writingError: '',
-      // Citation tool
       citationTab: 'generator',
       citationSource: '',
       citationStyleSelect: 'apa',
@@ -63,7 +95,6 @@
       citationError: '',
       lastCitation: null,
       bibliography: JSON.parse(localStorage.getItem('awa-biblio') || '[]'),
-      // Proofreading
       proofText: '',
       corrections: [],
       proofScore: 0,
@@ -71,7 +102,6 @@
       proofLoading: false,
       proofError: '',
       selectedCorrection: null,
-      // Thesis
       thesisStep: 'setup',
       thesisTopic: '',
       thesisDegree: '',
@@ -82,182 +112,151 @@
       thesisSections: [],
       thesisTotalWords: 0,
       currentGenSection: null,
-      // Settings
       showApiKey: false,
       settingsSaved: false,
     };
 
     // ============ UNIVERSITIES ============
-    const UNIVERSITIES = {
-      oxford: { name: 'University of Oxford', citationStyle: 'oscola', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Footnotes for citations','Separate bibliography'] },
-      cambridge: { name: 'University of Cambridge', citationStyle: 'harvard', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','Acknowledgements','TOC','List of Figures','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Harvard referencing','Word count stated'] },
-      harvard: { name: 'Harvard University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','Main Body','References','Appendices'], rules: ['Running head','Page numbers top right','APA 7th edition'] },
-      stanford: { name: 'Stanford University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, margins: { top: 2.54, bottom: 2.54, left: 3.18, right: 2.54 }, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['1-inch min margins','Double-spaced','APA or Chicago'] },
-      mit: { name: 'MIT', citationStyle: 'ieee', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','Introduction','Background','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['IEEE style','Clear section numbering'] },
+    var UNIVERSITIES = {
+      oxford: { name: 'University of Oxford', citationStyle: 'oscola', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Footnotes for citations','Separate bibliography'] },
+      cambridge: { name: 'University of Cambridge', citationStyle: 'harvard', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, structure: ['Title Page','Abstract','Acknowledgements','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Harvard referencing','Word count stated'] },
+      harvard: { name: 'Harvard University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, structure: ['Title Page','Abstract','Main Body','References','Appendices'], rules: ['Running head','Page numbers top right','APA 7th edition'] },
+      stanford: { name: 'Stanford University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['1-inch min margins','Double-spaced','APA or Chicago'] },
+      mit: { name: 'MIT', citationStyle: 'ieee', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, structure: ['Title Page','Abstract','Introduction','Background','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['IEEE style','Clear section numbering'] },
     };
 
-    const CITATION_STYLES = {
+    var CITATION_STYLES = {
       apa: { name: 'APA 7th Edition', inText: '(Author, Year)' },
       mla: { name: 'MLA 9th Edition', inText: '(Author Page)' },
       chicago: { name: 'Chicago 17th', inText: '(Author Year, Page)' },
       harvard: { name: 'Harvard', inText: '(Author, Year)' },
       ieee: { name: 'IEEE', inText: '[1]' },
-      oxford: { name: 'Oxford', inText: 'Footnote¹' },
+      oxford: { name: 'Oxford', inText: 'Footnote' },
       vancouver: { name: 'Vancouver', inText: '(1)' },
     };
 
     // ============ API FUNCTIONS ============
-    async function callOpenAI(messages, { temperature = 0.3, max_tokens = 4000, json = false } = {}) {
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    function callOpenAI(messages, opts) {
+      opts = opts || {};
+      return fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.apiKey },
         body: JSON.stringify({
-          model: 'gpt-4o', messages, temperature, max_tokens,
-          ...(json ? { response_format: { type: 'json_object' } } : {}),
+          model: 'gpt-4o',
+          messages: messages,
+          temperature: opts.temperature || 0.3,
+          max_tokens: opts.max_tokens || 4000,
+          response_format: opts.json ? { type: 'json_object' } : undefined,
         })
+      }).then(function(r) {
+        if (!r.ok) return r.json().then(function(e) { throw new Error(e.error.message || 'API error'); });
+        return r.json();
+      }).then(function(d) { return d.choices[0].message.content; });
+    }
+
+    function analyzeWriting(text, ctx) {
+      return callOpenAI([{ role: 'user', content:
+        'You are an academic writing tutor. Analyze this ' + ctx + ' writing. Return JSON only.\n\n' +
+        'Text:\n"""\n' + text + '\n"""\n\n' +
+        'Return: { "suggestions": [{"id":"1","original":"snippet","suggestion":"improved","explanation":"why better","type":"clarity|structure|tone|vocabulary|flow","severity":"low|medium|high"}] }\n' +
+        'Max 15 suggestions.'
+      }], { json: true }).then(function(c) {
+        try { return JSON.parse(c).suggestions || []; } catch(e) { return []; }
       });
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error?.message || 'API request failed');
-      }
-      const data = await resp.json();
-      return data.choices[0]?.message?.content || '';
     }
 
-    async function analyzeWriting(text, context) {
-      const content = await callOpenAI([{
-        role: 'user',
-        content: `You are an expert academic writing tutor. Analyze this ${context} writing and provide suggestions.
-
-Analyze: clarity, structure, tone, vocabulary, flow.
-
-Text:
-"""
-${text}
-"""
-
-Return JSON only:
-{ "suggestions": [
-  { "id": "1", "original": "text snippet", "suggestion": "improved version", "explanation": "why this is better", "type": "clarity|structure|tone|vocabulary|flow", "severity": "low|medium|high" }
-]}
-Max 15 suggestions. Empty array if none needed.`
-      }], { json: true });
-
-      try {
-        const parsed = JSON.parse(content);
-        return parsed.suggestions || [];
-      } catch { return []; }
+    function proofreadText(text) {
+      return callOpenAI([{ role: 'user', content:
+        'Proofread this academic text. Return JSON only:\n' +
+        '{ "corrections": [{"original":"","corrected":"","type":"grammar|spelling|punctuation|phrasing|word_choice|consistency","explanation":""}], "score": 85 }\n\n' +
+        'Text:\n"""\n' + text + '\n"""'
+      }], { json: true }).then(function(c) {
+        try { return JSON.parse(c); } catch(e) { return { corrections: [], score: 0 }; }
+      });
     }
 
-    async function proofreadText(text) {
-      const content = await callOpenAI([{
-        role: 'user',
-        content: `Proofread this academic text. Return JSON only:
-{ "corrections": [{"original":"","corrected":"","type":"grammar|spelling|punctuation|phrasing|word_choice|consistency","explanation":""}], "score": 85 }
-
-Text:
-"""
-${text}
-"""`
-      }], { json: true });
-
-      try {
-        return JSON.parse(content);
-      } catch { return { corrections: [], score: 0 }; }
+    function generateCitation(info, style) {
+      return callOpenAI([{ role: 'user', content:
+        'Format this source in ' + style.toUpperCase() + ' style: ' + info + '\n' +
+        'Return JSON: { "inText": "...", "reference": "..." }'
+      }], { json: true }).then(function(c) {
+        try { return JSON.parse(c); } catch(e) { return { reference: c, inText: '' }; }
+      });
     }
 
-    async function generateCitation(sourceInfo, style) {
-      const content = await callOpenAI([{
-        role: 'user',
-        content: `Format this source in ${style.toUpperCase()} style: ${sourceInfo}
-Return JSON: { "inText": "...", "reference": "...", "footnote": "..." }`
-      }], { json: true });
-
-      try {
-        return JSON.parse(content);
-      } catch { return { reference: content, inText: '', footnote: '' }; }
+    function generateThesisStructure(topic, degree, dept, uni) {
+      return callOpenAI([{ role: 'user', content:
+        'Create thesis structure for ' + degree + ' in ' + (dept||'General') + ' at ' + (uni||'Custom') + '.\nTopic: "' + topic + '"\n\n' +
+        'Return JSON: { "structure": [{"title":"","description":"","wordCount":0,"subsections":[]}], "totalWords": 15000 }'
+      }], { json: true }).then(function(c) {
+        try { return JSON.parse(c); } catch(e) { return { structure: [], totalWords: 0 }; }
+      });
     }
 
-    async function generateThesisStructure(topic, degree, dept, uni) {
-      const content = await callOpenAI([{
-        role: 'user',
-        content: `Create thesis structure for ${degree} in ${dept} at ${uni || 'Custom University'}.
-Topic: "${topic}"
-
-Return JSON:
-{ "structure": [{"title":"","description":"","wordCount":0,"subsections":[]}], "totalWords": 15000 }`
-      }], { json: true });
-
-      try { return JSON.parse(content); } catch { return { structure: [], totalWords: 0 }; }
-    }
-
-    async function expandSection(title, desc, topic, notes) {
-      return await callOpenAI([{
-        role: 'system',
-        content: `Help write a thesis section. Topic: ${topic}. Use [CITATION NEEDED] where real sources are required. Never fabricate facts. Student must verify all claims.`
-      }, {
-        role: 'user',
-        content: `Write content for "${title}".\nGuidance: ${desc}\nStudent notes: ${notes || 'Cover the subsections thoroughly.'}\n\nWrite comprehensive academic content with CITATION NEEDED markers.`
-      }], { temperature: 0.5, max_tokens: 4000 });
+    function expandSection(title, desc, topic, notes) {
+      return callOpenAI([
+        { role: 'system', content: 'Help write a thesis section. Topic: ' + topic + '. Use [CITATION NEEDED] where sources are needed. Never fabricate facts.' },
+        { role: 'user', content: 'Write content for "' + title + '".\nGuidance: ' + desc + '\nStudent notes: ' + (notes||'Cover subsections thoroughly.') }
+      ], { temperature: 0.5 });
     }
 
     // ============ EXPORT TO WORD ============
-    async function exportToWord() {
+    function exportToWord() {
       if (!state.thesisSections.length) return;
-      try {
-        const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = docx;
-        const doc = new Document({
-          sections: [{
-            properties: {},
-            children: state.thesisSections.flatMap((sec, idx) => {
-              const children = [];
-              children.push(new Paragraph({
-                heading: HeadingLevel.HEADING_1,
-                children: [new TextRun({ text: sec.title, bold: true, size: 28, font: 'Times New Roman' })],
-              }));
-              sec.subsections.forEach(sub => {
-                children.push(new Paragraph({
-                  heading: HeadingLevel.HEADING_2,
-                  children: [new TextRun({ text: sub, bold: true, size: 24, font: 'Times New Roman' })],
-                }));
-              });
-              if (sec.content) {
-                sec.content.split('\n\n').filter(Boolean).forEach(para => {
-                  const t = para.trim();
-                  if (t) {
-                    if (t.startsWith('##') || t.startsWith('# ')) {
-                      children.push(new Paragraph({
-                        heading: HeadingLevel.HEADING_2,
-                        spacing: { before: 200, after: 100 },
-                        children: [new TextRun({ text: t.replace(/^#+\s*/,'').replace(/\*\*/g,''), bold: true, size: 24, font: 'Times New Roman' })],
-                      }));
-                    } else {
-                      children.push(new Paragraph({
-                        spacing: { after: 120, line: 360 },
-                        children: [new TextRun({ text: t, size: 24, font: 'Times New Roman' })],
-                      }));
-                    }
-                  }
-                });
-              }
-              if (idx < state.thesisSections.length - 1) children.push(new Paragraph({ children: [new PageBreak()] }));
-              return children;
-            }),
-          }],
+      var Document = docx.Document;
+      var Packer = docx.Packer;
+      var Paragraph = docx.Paragraph;
+      var TextRun = docx.TextRun;
+      var HeadingLevel = docx.HeadingLevel;
+      var PageBreak = docx.PageBreak;
+
+      var children = [];
+      state.thesisSections.forEach(function(sec, idx) {
+        children.push(new Paragraph({
+          heading: HeadingLevel.HEADING_1,
+          children: [new TextRun({ text: sec.title, bold: true, size: 28, font: 'Times New Roman' })],
+        }));
+        sec.subsections.forEach(function(sub) {
+          children.push(new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            children: [new TextRun({ text: sub, bold: true, size: 24, font: 'Times New Roman' })],
+          }));
         });
-        const blob = await Packer.toBlob(doc);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        if (sec.content) {
+          sec.content.split('\n\n').filter(Boolean).forEach(function(para) {
+            var t = para.trim();
+            if (!t) return;
+            if (t.startsWith('##') || t.startsWith('# ')) {
+              children.push(new Paragraph({
+                heading: HeadingLevel.HEADING_2,
+                spacing: { before: 200, after: 100 },
+                children: [new TextRun({ text: t.replace(/^#+\s*/, '').replace(/\*\*/g, ''), bold: true, size: 24, font: 'Times New Roman' })],
+              }));
+            } else {
+              children.push(new Paragraph({
+                spacing: { after: 120, line: 360 },
+                children: [new TextRun({ text: t, size: 24, font: 'Times New Roman' })],
+              }));
+            }
+          });
+        }
+        if (idx < state.thesisSections.length - 1) {
+          children.push(new Paragraph({ children: [new PageBreak()] }));
+        }
+      });
+
+      var doc = new Document({ sections: [{ properties: {}, children: children }] });
+      Packer.toBlob(doc).then(function(blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
         a.href = url;
-        a.download = `${state.thesisTopic.replace(/[^a-z0-9]/gi,'_').substring(0,30)}_thesis.docx`;
+        a.download = state.thesisTopic.replace(/[^a-z0-9]/gi, '_').substring(0, 30) + '_thesis.docx';
         a.click();
         URL.revokeObjectURL(url);
-      } catch (e) {
-        alert('Export failed: ' + e.message);
-      }
+      });
     }
 
-    // ============ SAVE HELPERS ============
+    // ============ SAVE ============
     function saveSettings() {
       localStorage.setItem('awa-api-key', state.apiKey);
       localStorage.setItem('awa-university', state.university);
@@ -267,10 +266,120 @@ Return JSON:
       localStorage.setItem('awa-biblio', JSON.stringify(state.bibliography));
     }
 
+    // ============ ACTIONS ============
+    function doAnalyze() {
+      if (!state.apiKey) { state.writingError = 'Add your API key in Settings first'; render(); return; }
+      if (!state.writingText.trim()) { state.writingError = 'Enter some text to analyze'; render(); return; }
+      state.writingLoading = true; state.writingError = ''; state.suggestions = []; state.selectedSuggestion = null; render();
+      analyzeWriting(state.writingText, state.writingContext).then(function(s) {
+        state.suggestions = s; state.writingLoading = false; render();
+      }).catch(function(e) { state.writingError = e.message; state.writingLoading = false; render(); });
+    }
+
+    function doGenerateCitation() {
+      if (!state.apiKey) { state.citationError = 'Add API key in Settings'; render(); return; }
+      if (!state.citationSource.trim()) { state.citationError = 'Enter source info'; render(); return; }
+      state.citationLoading = true; state.citationError = ''; state.lastCitation = null; render();
+      generateCitation(state.citationSource, state.citationStyleSelect).then(function(c) {
+        state.lastCitation = c; state.citationLoading = false; render();
+      }).catch(function(e) { state.citationError = e.message; state.citationLoading = false; render(); });
+    }
+
+    function addToBiblio() {
+      if (!state.lastCitation) return;
+      state.bibliography.push({
+        id: Date.now().toString(),
+        source: state.citationSource,
+        reference: state.lastCitation.reference,
+        inText: state.lastCitation.inText
+      });
+      saveBiblio();
+      state.citationSource = '';
+      state.lastCitation = null;
+      render();
+    }
+
+    function doProofread() {
+      if (!state.apiKey) { state.proofError = 'Add API key in Settings'; render(); return; }
+      if (!state.proofText.trim()) { state.proofError = 'Enter some text'; render(); return; }
+      state.proofLoading = true; state.proofError = ''; state.corrections = []; state.proofScore = 0; state.correctedText = ''; state.selectedCorrection = null; render();
+      proofreadText(state.proofText).then(function(r) {
+        state.corrections = r.corrections || [];
+        state.proofScore = r.score || 0;
+        var corrected = state.proofText;
+        (r.corrections || []).forEach(function(c) { corrected = corrected.split(c.original).join(c.corrected); });
+        state.correctedText = corrected;
+        state.proofLoading = false;
+        render();
+      }).catch(function(e) { state.proofError = e.message; state.proofLoading = false; render(); });
+    }
+
+    function doGenerateStructure() {
+      if (!state.apiKey) { state.thesisError = 'Add API key in Settings'; render(); return; }
+      if (!state.thesisTopic || !state.thesisDegree) { state.thesisError = 'Enter topic and degree'; render(); return; }
+      state.thesisLoading = true; state.thesisError = ''; render();
+      generateThesisStructure(state.thesisTopic, state.thesisDegree, state.thesisDept, state.thesisUni).then(function(r) {
+        state.thesisSections = r.structure.map(function(s, i) {
+          return { id: 'section-' + i, title: s.title, description: s.description, wordCount: s.wordCount, subsections: s.subsections, content: '', notes: '', expanded: i === 0 };
+        });
+        state.thesisTotalWords = r.totalWords;
+        state.thesisStep = 'structure';
+        state.thesisLoading = false;
+        render();
+      }).catch(function(e) { state.thesisError = e.message; state.thesisLoading = false; render(); });
+    }
+
+    function doExpandSection(id) {
+      var sec = state.thesisSections.find(function(s) { return s.id === id; });
+      if (!sec || !state.apiKey) return;
+      state.currentGenSection = id; render();
+      expandSection(sec.title, sec.description, state.thesisTopic, sec.notes).then(function(content) {
+        state.thesisSections = state.thesisSections.map(function(s) { return s.id === id ? Object.assign({}, s, { content: content, expanded: true }) : s; });
+        state.currentGenSection = null; render();
+      }).catch(function(e) { state.thesisError = e.message; state.currentGenSection = null; render(); });
+    }
+
+    function toggleThesisSection(id) {
+      state.thesisSections = state.thesisSections.map(function(s) { return s.id === id ? Object.assign({}, s, { expanded: !s.expanded }) : s; });
+      render();
+    }
+    function updateSectionNotes(id, val) {
+      state.thesisSections = state.thesisSections.map(function(s) { return s.id === id ? Object.assign({}, s, { notes: val }) : s; });
+    }
+    function updateSectionContent(id, val) {
+      state.thesisSections = state.thesisSections.map(function(s) { return s.id === id ? Object.assign({}, s, { content: val }) : s; });
+    }
+    function addCustomSection() {
+      state.thesisSections.push({ id: 'custom-' + Date.now(), title: 'New Section', description: 'Custom section', wordCount: 1000, subsections: [], content: '', notes: '', expanded: true });
+      render();
+    }
+    function saveAllSettings() {
+      saveSettings();
+      state.settingsSaved = true;
+      setTimeout(function() { state.settingsSaved = false; render(); }, 3000);
+      render();
+    }
+    function removeBiblioItem(id) {
+      state.bibliography = state.bibliography.filter(function(x) { return x.id !== id; });
+      saveBiblio(); render();
+    }
+    function toggleSidebar() { state.sidebarCollapsed = !state.sidebarCollapsed; render(); }
+    function setTool(id) {
+      state.activeTool = id;
+      state.writingError = ''; state.citationError = ''; state.proofError = ''; state.thesisError = '';
+      render();
+    }
+
     // ============ RENDER ============
+    function escHtml(str) {
+      if (str == null) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     function render() {
-      const app = document.getElementById('app');
-      const tools = [
+      var app = document.getElementById('app');
+      var sidebarW = state.sidebarCollapsed ? 'w-16' : 'w-64';
+      var tools = [
         { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
         { id: 'writing', label: 'Writing Assistant', icon: 'pen-tool' },
         { id: 'citation', label: 'Citations & Formatting', icon: 'book-open' },
@@ -279,274 +388,240 @@ Return JSON:
         { id: 'settings', label: 'Settings', icon: 'settings' },
       ];
 
-      const sidebarW = state.sidebarCollapsed ? 'w-16' : 'w-64';
-
-      app.innerHTML = `
-        <div class="flex h-screen">
-          <!-- Sidebar -->
-          <aside class="${sidebarW} flex flex-col border-r border-gray-200 bg-gray-50 transition-all duration-300">
-            <div class="flex items-center justify-between p-4 border-b border-gray-200">
-              ${!state.sidebarCollapsed ? `<div class="flex items-center gap-2"><div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><i data-lucide="pen-tool" class="w-4 h-4 text-white"></i></div><span class="font-bold text-sm">Academic WA</span></div>` : ''}
-              <button onclick="toggleSidebar()" class="p-1.5 rounded-lg hover:bg-gray-200 transition-colors">
-                <i data-lucide="${state.sidebarCollapsed ? 'chevron-right' : 'chevron-left'}" class="w-[18px] h-[18px]"></i>
-              </button>
-            </div>
-            <nav class="flex-1 p-2 space-y-1">
-              ${tools.map(t => `
-                <button onclick="setTool('${t.id}')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm font-medium ${state.activeTool === t.id ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-200'}" ${state.sidebarCollapsed ? `title="${t.label}"` : ''}>
-                  <i data-lucide="${t.icon}" class="w-5 h-5"></i>
-                  ${!state.sidebarCollapsed ? `<span>${t.label}</span>` : ''}
-                </button>
-              `).join('')}
-            </nav>
-            ${!state.sidebarCollapsed ? `<div class="p-4 border-t border-gray-200"><p class="text-xs text-gray-400">Academic Writing Assistant</p><p class="text-xs text-gray-400 mt-1">For legitimate academic improvement</p></div>` : ''}
-          </aside>
-          <!-- Main -->
-          <main class="flex-1 overflow-auto bg-white">
-            ${renderTool()}
-          </main>
-        </div>
-      `;
-      lucide.createIcons();
-    }
-
-    function toggleSidebar() { state.sidebarCollapsed = !state.sidebarCollapsed; render(); }
-    function setTool(id) { state.activeTool = id; state.writingError = ''; state.citationError = ''; state.proofError = ''; state.thesisError = ''; render(); }
-
-    // ============ TOOL RENDERS ============
-    function renderTool() {
-      switch (state.activeTool) {
-        case 'dashboard': return renderDashboard();
-        case 'writing': return renderWriting();
-        case 'citation': return renderCitation();
-        case 'proofreading': return renderProofreading();
-        case 'thesis': return renderThesis();
-        case 'settings': return renderSettings();
-        default: return renderDashboard();
+      var html = '<div class="flex h-screen">';
+      // Sidebar
+      html += '<aside class="' + sidebarW + ' flex flex-col border-r border-gray-200 bg-gray-50 transition-all duration-300">';
+      html += '<div class="flex items-center justify-between p-4 border-b border-gray-200">';
+      if (!state.sidebarCollapsed) {
+        html += '<div class="flex items-center gap-2"><div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">' + icon('pen-tool', 16).replace(/<svg/, '<svg class="text-white"') + '</div><span class="font-bold text-sm">Academic WA</span></div>';
       }
+      html += '<button onclick="toggleSidebar()" class="p-1.5 rounded-lg hover:bg-gray-200 transition-colors">' + icon(state.sidebarCollapsed ? 'chevron-right' : 'chevron-left') + '</button>';
+      html += '</div>';
+      html += '<nav class="flex-1 p-2 space-y-1">';
+      tools.forEach(function(t) {
+        var active = state.activeTool === t.id;
+        html += '<button onclick="setTool(\'' + t.id + '\')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm font-medium ' + (active ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-200') + '"';
+        if (state.sidebarCollapsed) html += ' title="' + t.label + '"';
+        html += '>' + icon(t.icon) + (state.sidebarCollapsed ? '' : '<span>' + t.label + '</span>') + '</button>';
+      });
+      html += '</nav>';
+      if (!state.sidebarCollapsed) {
+        html += '<div class="p-4 border-t border-gray-200"><p class="text-xs text-gray-400">Academic Writing Assistant</p><p class="text-xs text-gray-400 mt-1">For legitimate academic improvement</p></div>';
+      }
+      html += '</aside>';
+      // Main
+      html += '<main class="flex-1 overflow-auto bg-white">';
+      switch (state.activeTool) {
+        case 'dashboard': html += renderDashboard(); break;
+        case 'writing': html += renderWriting(); break;
+        case 'citation': html += renderCitation(); break;
+        case 'proofreading': html += renderProofreading(); break;
+        case 'thesis': html += renderThesis(); break;
+        case 'settings': html += renderSettings(); break;
+      }
+      html += '</main></div>';
+      app.innerHTML = html;
     }
 
     function renderDashboard() {
-      const tools = [
-        { id: 'writing', title: 'Writing Improvement Tool', icon: 'pen-tool', color: 'bg-blue-500', desc: 'Get AI-powered suggestions with clear explanations to improve your academic writing.', features: ['Clarity','Structure','Tone','Vocabulary','Flow'] },
-        { id: 'citation', title: 'Citations & Formatting', icon: 'book-open', color: 'bg-emerald-500', desc: 'Generate perfectly formatted citations and follow university-specific guidelines.', features: ['7 citation styles','University templates','Bibliography builder','Format validation'] },
-        { id: 'proofreading', title: 'Proofreading Tool', icon: 'check-circle', color: 'bg-violet-500', desc: 'Comprehensive grammar, spelling, and style checking for academic writing.', features: ['Grammar','Spelling','Academic style','Consistency','Quality scoring'] },
-        { id: 'thesis', title: 'Thesis Generator', icon: 'file-text', color: 'bg-amber-500', desc: 'Structure and draft your thesis with university-compliant templates. Export to Word.', features: ['Custom structure','Section drafting','Word export','University compliance'] },
+      var tools = [
+        { id: 'writing', title: 'Writing Improvement Tool', icon: 'pen-tool', color: 'bg-blue-500', desc: 'Get AI-powered suggestions with clear explanations.', features: ['Clarity','Structure','Tone','Vocabulary','Flow'] },
+        { id: 'citation', title: 'Citations & Formatting', icon: 'book-open', color: 'bg-emerald-500', desc: 'Generate perfectly formatted citations and follow university guidelines.', features: ['7 styles','University templates','Bibliography builder','Format check'] },
+        { id: 'proofreading', title: 'Proofreading Tool', icon: 'check-circle', color: 'bg-violet-500', desc: 'Comprehensive grammar, spelling, and style checking.', features: ['Grammar','Spelling','Academic style','Consistency','Scoring'] },
+        { id: 'thesis', title: 'Thesis Generator', icon: 'file-text', color: 'bg-amber-500', desc: 'Structure and draft your thesis. Export to Word.', features: ['Custom structure','Section drafting','Word export','Uni compliance'] },
       ];
-      const tips = [
-        'Always write your first draft yourself, then use tools to improve',
+      var tips = [
+        'Write your first draft yourself, then use tools to improve',
         'Verify all AI-suggested citations against original sources',
-        'Check your university\'s specific guidelines before final submission',
+        'Check your university guidelines before final submission',
         'Use the Writing Assistant to learn, not just to fix text',
       ];
-      return `<div class="p-8 max-w-7xl mx-auto fade-in">
-        <h1 class="text-3xl font-bold mb-2">Academic Writing Assistant</h1>
-        <p class="text-gray-500 text-lg mb-8">Legitimate tools to improve your academic writing skills</p>
-        <div class="mb-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
-          <h3 class="font-semibold text-blue-600 mb-3">Best Practices</h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            ${tips.map(t => `<div class="flex items-start gap-2 text-sm"><i data-lucide="lightbulb" class="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0"></i><span class="text-gray-500">${t}</span></div>`).join('')}
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          ${tools.map(t => `<div class="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-all">
-            <div class="flex items-start gap-4 mb-4">
-              <div class="p-3 rounded-lg ${t.color} text-white"><i data-lucide="${t.icon}" class="w-6 h-6"></i></div>
-              <div><h2 class="text-xl font-semibold">${t.title}</h2><p class="text-sm text-gray-500 mt-1">${t.desc}</p></div>
-            </div>
-            <div class="space-y-2"><p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Features:</p>
-              <div class="flex flex-wrap gap-2">${t.features.map(f => `<span class="text-xs px-2 py-1 bg-gray-100 rounded-md text-gray-500">${f}</span>`).join('')}</div>
-            </div>
-          </div>`).join('')}
-        </div>
-        <div class="mt-8 p-6 bg-gray-100 rounded-xl">
-          <h2 class="text-lg font-semibold mb-3">Getting Started</h2>
-          <ol class="space-y-2 text-gray-500">
-            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span><span>Go to <strong class="text-gray-900">Settings</strong> and add your OpenAI API key</span></li>
-            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span><span>Select your university or use custom settings</span></li>
-            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span><span>Choose a tool from the sidebar and paste your writing</span></li>
-            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span><span>Review suggestions and learn from the explanations</span></li>
-          </ol>
-        </div>
-      </div>`;
+
+      var h = '<div class="p-8 max-w-7xl mx-auto fade-in">';
+      h += '<h1 class="text-3xl font-bold mb-2">Academic Writing Assistant</h1>';
+      h += '<p class="text-gray-500 text-lg mb-8">Legitimate tools to improve your academic writing skills</p>';
+      h += '<div class="mb-8 p-4 bg-blue-50 rounded-xl border border-blue-200"><h3 class="font-semibold text-blue-600 mb-3">Best Practices</h3><div class="grid grid-cols-1 md:grid-cols-2 gap-3">';
+      tips.forEach(function(t) { h += '<div class="flex items-start gap-2 text-sm">' + icon('lightbulb') + '<span class="text-gray-500">' + t + '</span></div>'; });
+      h += '</div></div>';
+      h += '<div class="grid grid-cols-1 md:grid-cols-2 gap-6">';
+      tools.forEach(function(t) {
+        h += '<div class="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-all">';
+        h += '<div class="flex items-start gap-4 mb-4"><div class="p-3 rounded-lg ' + t.color + ' text-white">' + icon(t.icon, 24) + '</div>';
+        h += '<div><h2 class="text-xl font-semibold">' + t.title + '</h2><p class="text-sm text-gray-500 mt-1">' + t.desc + '</p></div></div>';
+        h += '<p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Features:</p><div class="flex flex-wrap gap-2">';
+        t.features.forEach(function(f) { h += '<span class="text-xs px-2 py-1 bg-gray-100 rounded-md text-gray-500">' + f + '</span>'; });
+        h += '</div></div>';
+      });
+      h += '</div>';
+      h += '<div class="mt-8 p-6 bg-gray-100 rounded-xl"><h2 class="text-lg font-semibold mb-3">Getting Started</h2><ol class="space-y-2 text-gray-500">';
+      h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span><span>Go to <strong class="text-gray-900">Settings</strong> and add your OpenAI API key</span></li>';
+      h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span><span>Select your university or use custom settings</span></li>';
+      h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span><span>Choose a tool from the sidebar and paste your writing</span></li>';
+      h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span><span>Review suggestions and learn from the explanations</span></li>';
+      h += '</ol></div></div>';
+      return h;
     }
 
     function renderWriting() {
-      const severityColors = { low: 'bg-blue-100 text-blue-700 border-blue-200', medium: 'bg-amber-100 text-amber-700 border-amber-200', high: 'bg-red-100 text-red-700 border-red-200' };
-      const typeIcons = { clarity: 'book-open', structure: 'alert-circle', tone: 'check-circle', vocabulary: 'pen-tool', flow: 'arrow-right' };
-      return `<div class="p-6 max-w-7xl mx-auto fade-in h-full flex flex-col">
-        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Writing Improvement Tool</h1><p class="text-gray-500">Paste your writing and get actionable suggestions with explanations</p></div>
-        ${state.writingError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.writingError}</div>` : ''}
-        <div class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
-          <div class="flex flex-col">
-            <div class="flex items-center justify-between mb-3">
-              <label class="text-sm font-medium">Your Writing</label>
-              <div class="flex items-center gap-3">
-                <select onchange="state.writingContext=this.value;render()" class="text-sm px-2 py-1 rounded-lg border border-gray-200 bg-white">
-                  ${['academic','essay','report','literature_review'].map(c => `<option value="${c}" ${state.writingContext===c?'selected:''}>${c.replace('_',' ').replace(/\b\w/g,l=>l.toUpperCase())}</option>`).join('')}
-                </select>
-                <button onclick="doAnalyze()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2" ${state.writingLoading?'disabled':''}>
-                  ${state.writingLoading ? `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner"></div> Analyzing...` : `<i data-lucide="pen-tool" class="w-4 h-4"></i> Analyze`}
-                </button>
-              </div>
-            </div>
-            <textarea oninput="state.writingText=this.value;render()" placeholder="Paste your academic writing here..." class="flex-1 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${state.writingText}</textarea>
-            <div class="mt-2 text-xs text-gray-400 text-right">${state.writingText.split(/\s+/).filter(Boolean).length} words</div>
-          </div>
-          <div class="flex flex-col overflow-hidden">
-            <label class="text-sm font-medium mb-3">Suggestions ${state.suggestions.length > 0 ? `(${state.suggestions.length})` : ''}</label>
-            ${state.writingLoading ? `<div class="flex-1 flex items-center justify-center text-gray-500"><div class="text-center"><div class="w-8 h-8 border-3 border-gray-300 border-t-blue-600 rounded-full spinner mx-auto mb-3"></div><p class="text-sm">Analyzing your writing...</p></div></div>` :
-            state.suggestions.length === 0 ? `<div class="flex-1 flex items-center justify-center text-gray-400 text-sm">${state.writingText ? 'Click Analyze to get suggestions' : 'Enter text to analyze'}</div>` :
-            `<div class="flex-1 overflow-y-auto space-y-3 pr-2">
-              ${state.suggestions.map(s => `
-                <button onclick="state.selectedSuggestion=state.selectedSuggestion==='${s.id}'?null:'${s.id}';render()" class="w-full text-left p-4 rounded-xl border transition-all ${state.selectedSuggestion===s.id ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300'}">
-                  <div class="flex items-start justify-between gap-2 mb-2">
-                    <div class="flex items-center gap-2"><i data-lucide="${typeIcons[s.type]}" class="w-4 h-4 text-gray-500"></i><span class="text-xs font-medium uppercase tracking-wide text-gray-400">${s.type}</span></div>
-                    <span class="text-xs px-2 py-0.5 rounded-full border ${severityColors[s.severity]}">${s.severity}</span>
-                  </div>
-                  <p class="text-sm text-gray-400 line-clamp-2 mb-1">"${s.original}"</p>
-                  ${state.selectedSuggestion===s.id ? `<div class="mt-3 pt-3 border-t border-blue-200 space-y-3 fade-in"><div><p class="text-xs font-medium text-gray-400 mb-1">Suggestion:</p><p class="text-sm text-blue-600 bg-blue-50/50 p-2 rounded">${s.suggestion}</p></div><div><p class="text-xs font-medium text-gray-400 mb-1">Why this helps:</p><p class="text-sm">${s.explanation}</p></div></div>` : ''}
-                </button>
-              `).join('')}
-            </div>`}
-          </div>
-        </div>
-      </div>`;
-    }
+      var sevColors = { low: 'bg-blue-100 text-blue-700 border-blue-200', medium: 'bg-amber-100 text-amber-700 border-amber-200', high: 'bg-red-100 text-red-700 border-red-200' };
+      var typeIcons = { clarity: 'book-open', structure: 'alert-circle', tone: 'check-circle', vocabulary: 'pen-tool', flow: 'arrow-right' };
+      var ctxs = ['academic','essay','report','literature_review'];
 
-    async function doAnalyze() {
-      if (!state.apiKey) { state.writingError = 'Add your API key in Settings first'; render(); return; }
-      if (!state.writingText.trim()) { state.writingError = 'Enter some text to analyze'; render(); return; }
-      state.writingLoading = true; state.writingError = ''; state.suggestions = []; state.selectedSuggestion = null; render();
-      try {
-        state.suggestions = await analyzeWriting(state.writingText, state.writingContext);
-      } catch(e) { state.writingError = e.message; }
-      state.writingLoading = false; render();
+      var h = '<div class="p-6 max-w-7xl mx-auto fade-in h-full flex flex-col">';
+      h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Writing Improvement Tool</h1><p class="text-gray-500">Paste your writing and get suggestions with explanations</p></div>';
+      if (state.writingError) h += '<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">' + icon('alert-circle') + escHtml(state.writingError) + '</div>';
+      h += '<div class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">';
+      // Input
+      h += '<div class="flex flex-col"><div class="flex items-center justify-between mb-3">';
+      h += '<label class="text-sm font-medium">Your Writing</label><div class="flex items-center gap-3">';
+      h += '<select id="wctx" class="text-sm px-2 py-1 rounded-lg border border-gray-200 bg-white">';
+      ctxs.forEach(function(c) { var label = c.replace('_',' ').replace(/\b\w/g,function(l){return l.toUpperCase();}); h += '<option value="' + c + '"' + (state.writingContext===c?' selected':'') + '>' + label + '</option>'; });
+      h += '</select>';
+      h += '<button onclick="doAnalyze()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2"' + (state.writingLoading?' disabled':'') + '>';
+      if (state.writingLoading) h += '<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spin"></div> Analyzing...';
+      else h += icon('pen-tool', 16) + ' Analyze';
+      h += '</button></div></div>';
+      h += '<textarea id="wtext" placeholder="Paste your academic writing here..." class="flex-1 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">' + escHtml(state.writingText) + '</textarea>';
+      h += '<div class="mt-2 text-xs text-gray-400 text-right">' + state.writingText.split(/\s+/).filter(Boolean).length + ' words</div></div>';
+      // Suggestions
+      h += '<div class="flex flex-col overflow-hidden"><label class="text-sm font-medium mb-3">Suggestions' + (state.suggestions.length ? ' (' + state.suggestions.length + ')' : '') + '</label>';
+      if (state.writingLoading) {
+        h += '<div class="flex-1 flex items-center justify-center text-gray-500"><div class="text-center"><div class="w-8 h-8 border-3 border-gray-300 border-t-blue-600 rounded-full spin mx-auto mb-3"></div><p class="text-sm">Analyzing...</p></div></div>';
+      } else if (state.suggestions.length === 0) {
+        h += '<div class="flex-1 flex items-center justify-center text-gray-400 text-sm">' + (state.writingText ? 'Click Analyze to get suggestions' : 'Enter text to analyze') + '</div>';
+      } else {
+        h += '<div class="flex-1 overflow-y-auto space-y-3 pr-2">';
+        state.suggestions.forEach(function(s) {
+          var sel = state.selectedSuggestion === s.id;
+          h += '<button class="w-full text-left p-4 rounded-xl border transition-all ' + (sel ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300') + '" onclick="state.selectedSuggestion=state.selectedSuggestion===\'' + s.id + '\'?null:\'' + s.id + '\';render();">';
+          h += '<div class="flex items-start justify-between gap-2 mb-2"><div class="flex items-center gap-2">' + icon(typeIcons[s.type]||'alert-circle', 16) + '<span class="text-xs font-medium uppercase tracking-wide text-gray-400">' + s.type + '</span></div>';
+          h += '<span class="text-xs px-2 py-0.5 rounded-full border ' + sevColors[s.severity] + '">' + s.severity + '</span></div>';
+          h += '<p class="text-sm text-gray-400 line-clamp-2 mb-1">"' + escHtml(s.original) + '"</p>';
+          if (sel) {
+            h += '<div class="mt-3 pt-3 border-t border-blue-200 space-y-3 fade-in">';
+            h += '<div><p class="text-xs font-medium text-gray-400 mb-1">Suggestion:</p><p class="text-sm text-blue-600 bg-blue-50/50 p-2 rounded">' + escHtml(s.suggestion) + '</p></div>';
+            h += '<div><p class="text-xs font-medium text-gray-400 mb-1">Why this helps:</p><p class="text-sm">' + escHtml(s.explanation) + '</p></div>';
+            h += '</div>';
+          }
+          h += '</button>';
+        });
+        h += '</div>';
+      }
+      h += '</div></div></div>';
+      return h;
     }
 
     function renderCitation() {
-      return `<div class="p-6 max-w-5xl mx-auto fade-in">
-        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Citations & Formatting</h1><p class="text-gray-500">Generate perfectly formatted citations for your academic work</p></div>
-        <div class="flex gap-2 mb-6">
-          <button onclick="state.citationTab='generator';render()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors ${state.citationTab==='generator'?'bg-blue-600 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}">Citation Generator</button>
-          <button onclick="state.citationTab='bibliography';render()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors ${state.citationTab==='bibliography'?'bg-blue-600 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}">Bibliography (${state.bibliography.length})</button>
-        </div>
-        ${state.citationError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.citationError}</div>` : ''}
-        ${state.citationTab === 'generator' ? renderCitationGenerator() : renderBibliography()}
-      </div>`;
+      var h = '<div class="p-6 max-w-5xl mx-auto fade-in">';
+      h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Citations & Formatting</h1><p class="text-gray-500">Generate perfectly formatted citations</p></div>';
+      h += '<div class="flex gap-2 mb-6">';
+      h += '<button onclick="state.citationTab=\'generator\';render()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors ' + (state.citationTab==='generator'?'bg-blue-600 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200') + '">Citation Generator</button>';
+      h += '<button onclick="state.citationTab=\'bibliography\';render()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors ' + (state.citationTab==='bibliography'?'bg-blue-600 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200') + '">Bibliography (' + state.bibliography.length + ')</button>';
+      h += '</div>';
+      if (state.citationError) h += '<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">' + icon('alert-circle') + escHtml(state.citationError) + '</div>';
+      if (state.citationTab === 'generator') h += renderCitationGen();
+      else h += renderBiblio();
+      h += '</div>';
+      return h;
     }
 
-    function renderCitationGenerator() {
-      return `<div class="space-y-6">
-        <div class="flex items-center gap-4">
-          <label class="text-sm font-medium">Citation Style:</label>
-          <select onchange="state.citationStyleSelect=this.value;render()" class="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm">
-            ${Object.entries(CITATION_STYLES).map(([k,v]) => `<option value="${k}" ${state.citationStyleSelect===k?'selected':''}>${v.name}</option>`).join('')}
-          </select>
-          ${state.university ? `<span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">Uni: ${UNIVERSITIES[state.university]?.name || state.university}</span>` : ''}
-        </div>
-        <div class="space-y-3">
-          <label class="text-sm font-medium">Source Information</label>
-          <textarea oninput="state.citationSource=this.value;render()" placeholder="Enter source details, e.g.:&#10;- Book: Author name, title, publisher, year, ISBN&#10;- Journal: Authors, article title, journal name, volume, issue, pages, DOI&#10;- Or paste a DOI/URL" class="w-full h-32 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${state.citationSource}</textarea>
-          <button onclick="doGenerateCitation()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2" ${state.citationLoading?'disabled':''}>
-            ${state.citationLoading ? `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner"></div> Generating...` : `<i data-lucide="book-open" class="w-4 h-4"></i> Generate Citation`}
-          </button>
-        </div>
-        ${state.lastCitation ? `<div class="p-4 bg-white border border-gray-200 rounded-xl space-y-3 fade-in">
-          <div><p class="text-xs font-medium text-gray-400 mb-2">In-text citation:</p><div class="flex items-center justify-between p-3 bg-gray-100 rounded-lg"><code class="text-sm">${state.lastCitation.inText || 'N/A'}</code><button onclick="navigator.clipboard.writeText('${(state.lastCitation.inText||'').replace(/'/g,"\\'")}')" class="p-1 hover:bg-gray-200 rounded"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button></div></div>
-          <div><p class="text-xs font-medium text-gray-400 mb-2">Full reference:</p><div class="flex items-start justify-between p-3 bg-gray-100 rounded-lg"><p class="text-sm flex-1 pr-2">${state.lastCitation.reference}</p><button onclick="navigator.clipboard.writeText('${state.lastCitation.reference.replace(/'/g,"\\'")}')" class="p-1 hover:bg-gray-200 rounded flex-shrink-0"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button></div></div>
-          <button onclick="addToBiblio()" class="flex items-center gap-2 text-sm text-blue-600 hover:underline"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add to Bibliography</button>
-        </div>` : ''}
-        <div class="p-4 bg-gray-100 rounded-xl">
-          <p class="text-sm font-medium mb-2">Tips:</p>
-          <ul class="text-xs text-gray-500 space-y-1"><li>• Include as much detail as possible</li><li>• For DOIs, just paste the DOI number</li><li>• Always verify AI-generated citations against the official style guide</li></ul>
-        </div>
-      </div>`;
+    function renderCitationGen() {
+      var h = '<div class="space-y-6">';
+      h += '<div class="flex items-center gap-4"><label class="text-sm font-medium">Citation Style:</label>';
+      h += '<select id="cstyle" class="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm">';
+      Object.keys(CITATION_STYLES).forEach(function(k) { h += '<option value="' + k + '"' + (state.citationStyleSelect===k?' selected':'') + '>' + CITATION_STYLES[k].name + '</option>'; });
+      h += '</select>';
+      h += '</div>';
+      h += '<div class="space-y-3"><label class="text-sm font-medium">Source Information</label>';
+      h += '<textarea id="csrc" placeholder="Enter source details or paste a DOI/URL..." class="w-full h-32 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">' + escHtml(state.citationSource) + '</textarea>';
+      h += '<button onclick="doGenerateCitation()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2"' + (state.citationLoading?' disabled':'') + '>';
+      if (state.citationLoading) h += '<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spin"></div> Generating...';
+      else h += icon('book-open', 16) + ' Generate Citation';
+      h += '</button></div>';
+      if (state.lastCitation) {
+        h += '<div class="p-4 bg-white border border-gray-200 rounded-xl space-y-3 fade-in">';
+        h += '<div><p class="text-xs font-medium text-gray-400 mb-2">In-text citation:</p><div class="flex items-center justify-between p-3 bg-gray-100 rounded-lg"><code class="text-sm">' + escHtml(state.lastCitation.inText || 'N/A') + '</code><button onclick="copyText(this)" data-text="' + escHtml(state.lastCitation.inText || '') + '" class="p-1 hover:bg-gray-200 rounded">' + icon('copy') + '</button></div></div>';
+        h += '<div><p class="text-xs font-medium text-gray-400 mb-2">Full reference:</p><div class="flex items-start justify-between p-3 bg-gray-100 rounded-lg"><p class="text-sm flex-1 pr-2">' + escHtml(state.lastCitation.reference) + '</p><button onclick="copyText(this)" data-text="' + escHtml(state.lastCitation.reference) + '" class="p-1 hover:bg-gray-200 rounded flex-shrink-0">' + icon('copy') + '</button></div></div>';
+        h += '<button onclick="addToBiblio()" class="flex items-center gap-2 text-sm text-blue-600 hover:underline">' + icon('plus') + ' Add to Bibliography</button>';
+        h += '</div>';
+      }
+      h += '<div class="p-4 bg-gray-100 rounded-xl"><p class="text-sm font-medium mb-2">Tips:</p><ul class="text-xs text-gray-500 space-y-1"><li>Include as much detail as possible</li><li>For DOIs, just paste the DOI number</li><li>Always verify AI citations against the official style guide</li></ul></div>';
+      h += '</div>';
+      return h;
     }
 
-    async function doGenerateCitation() {
-      if (!state.apiKey) { state.citationError = 'Add API key in Settings'; render(); return; }
-      if (!state.citationSource.trim()) { state.citationError = 'Enter source info'; render(); return; }
-      state.citationLoading = true; state.citationError = ''; state.lastCitation = null; render();
-      try {
-        state.lastCitation = await generateCitation(state.citationSource, state.citationStyleSelect);
-      } catch(e) { state.citationError = e.message; }
-      state.citationLoading = false; render();
+    function renderBiblio() {
+      if (state.bibliography.length === 0) {
+        return '<div class="text-center py-12 text-gray-400">' + icon('book-open', 48).replace(/<svg/, '<svg class="mx-auto mb-3 opacity-50"') + '<p>No citations yet</p></div>';
+      }
+      var h = '<div class="space-y-4"><div class="flex justify-end"><button onclick="copyAllBiblio()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">' + icon('copy') + ' Copy All</button></div>';
+      h += '<div class="space-y-3">';
+      state.bibliography.forEach(function(c) {
+        h += '<div class="p-3 bg-white border border-gray-200 rounded-lg">';
+        h += '<div class="flex items-start justify-between gap-2"><p class="text-sm flex-1">' + escHtml(c.reference) + '</p>';
+        h += '<div class="flex items-center gap-1">';
+        h += '<button onclick="copyText(this)" data-text="' + escHtml(c.reference) + '" class="p-1 hover:bg-gray-100 rounded" title="Copy">' + icon('copy') + '</button>';
+        h += '<button onclick="removeBiblioItem(\'' + c.id + '\')" class="p-1 hover:bg-red-50 rounded text-red-500" title="Remove">' + icon('trash-2') + '</button>';
+        h += '</div></div>';
+        if (c.inText) h += '<p class="text-xs text-gray-400 mt-2">In-text: ' + escHtml(c.inText) + '</p>';
+        h += '</div>';
+      });
+      h += '</div></div>';
+      return h;
     }
 
-    function addToBiblio() {
-      if (!state.lastCitation) return;
-      state.bibliography.push({ id: Date.now().toString(), source: state.citationSource, reference: state.lastCitation.reference, inText: state.lastCitation.inText });
-      saveBiblio(); state.citationSource = ''; state.lastCitation = null; render();
+    function copyText(btn) {
+      navigator.clipboard.writeText(btn.getAttribute('data-text') || '');
     }
-
-    function renderBibliography() {
-      if (state.bibliography.length === 0) return `<div class="text-center py-12 text-gray-400"><i data-lucide="book-open" class="w-12 h-12 mx-auto mb-3 opacity-50"></i><p>No citations yet</p></div>`;
-      return `<div class="space-y-4">
-        <div class="flex justify-end"><button onclick="navigator.clipboard.writeText(state.bibliography.map(c=>c.reference).join('\\n\\n'))" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy All</button></div>
-        <div class="space-y-3">
-          ${state.bibliography.map(c => `<div class="p-3 bg-white border border-gray-200 rounded-lg group">
-            <div class="flex items-start justify-between gap-2">
-              <p class="text-sm flex-1">${c.reference}</p>
-              <div class="flex items-center gap-1">
-                <button onclick="navigator.clipboard.writeText('${c.reference.replace(/'/g,"\\'")}')" class="p-1 hover:bg-gray-100 rounded" title="Copy"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
-                <button onclick="state.bibliography=state.bibliography.filter(x=>x.id!=='${c.id}');saveBiblio();render()" class="p-1 hover:bg-red-50 rounded text-red-500" title="Remove"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
-              </div>
-            </div>
-            ${c.inText ? `<p class="text-xs text-gray-400 mt-2">In-text: ${c.inText}</p>` : ''}
-          </div>`).join('')}
-        </div>
-      </div>`;
+    function copyAllBiblio() {
+      var text = state.bibliography.map(function(c) { return c.reference; }).join('\n\n');
+      navigator.clipboard.writeText(text);
     }
 
     function renderProofreading() {
-      const typeColors = { grammar: 'bg-red-100 text-red-700 border-red-200', spelling: 'bg-orange-100 text-orange-700 border-orange-200', punctuation: 'bg-yellow-100 text-yellow-700 border-yellow-200', phrasing: 'bg-blue-100 text-blue-700 border-blue-200', word_choice: 'bg-purple-100 text-purple-700 border-purple-200', consistency: 'bg-indigo-100 text-indigo-700 border-indigo-200' };
-      const sc = (s) => s >= 90 ? 'text-green-600' : s >= 70 ? 'text-amber-600' : 'text-red-600';
-      const sl = (s) => s >= 95 ? 'Excellent' : s >= 85 ? 'Very Good' : s >= 70 ? 'Good' : s >= 50 ? 'Needs Work' : 'Significant Revision Needed';
-      return `<div class="p-6 max-w-7xl mx-auto fade-in">
-        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Proofreading Tool</h1><p class="text-gray-500">Grammar, spelling, and style checking for academic writing</p></div>
-        ${state.proofError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.proofError}</div>` : ''}
-        ${state.proofScore > 0 ? `<div class="mb-6 p-4 rounded-xl border ${state.proofScore>=85?'bg-green-50 border-green-200':state.proofScore>=70?'bg-amber-50 border-amber-200':'bg-red-50 border-red-200'}"><div class="flex items-center gap-4"><div class="text-4xl font-bold ${sc(state.proofScore)}">${state.proofScore}</div><div><p class="font-medium">Quality Score: ${sl(state.proofScore)}</p><p class="text-sm text-gray-500">${state.corrections.length} issue${state.corrections.length!==1?'s':''} found</p></div></div></div>` : ''}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="space-y-3">
-            <div class="flex items-center justify-between"><label class="text-sm font-medium">Original Text</label>
-              <button onclick="doProofread()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2" ${state.proofLoading?'disabled':''}>
-                ${state.proofLoading ? `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner"></div> Checking...` : `<i data-lucide="check-circle" class="w-4 h-4"></i> Proofread`}
-              </button>
-            </div>
-            <textarea oninput="state.proofText=this.value;render()" placeholder="Paste your text here for proofreading..." class="w-full h-64 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${state.proofText}</textarea>
-            <div class="text-xs text-gray-400 text-right">${state.proofText.split(/\s+/).filter(Boolean).length} words</div>
-          </div>
-          <div class="space-y-3">
-            <div class="flex items-center justify-between"><label class="text-sm font-medium">Corrected Text</label>
-              ${state.correctedText ? `<button onclick="navigator.clipboard.writeText(state.correctedText)" class="p-1.5 hover:bg-gray-100 rounded text-gray-500" title="Copy"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>` : ''}
-            </div>
-            <div class="w-full h-64 p-4 border border-gray-200 rounded-xl bg-gray-50 overflow-y-auto text-sm leading-relaxed">${state.correctedText || '<span class="text-gray-400">Corrected text will appear here</span>'}</div>
-          </div>
-        </div>
-        ${state.corrections.length > 0 ? `<div class="mt-6"><h3 class="text-sm font-medium mb-3">Detailed Corrections</h3><div class="space-y-3">
-          ${state.corrections.map((c,i) => `<div class="p-4 rounded-xl border cursor-pointer transition-all ${state.selectedCorrection===i?'border-blue-600 bg-blue-50':'border-gray-200 bg-white hover:border-blue-300'}" onclick="state.selectedCorrection=state.selectedCorrection===${i}?null:${i};render()">
-            <span class="text-xs px-2 py-0.5 rounded-full border ${typeColors[c.type]||'bg-gray-100 text-gray-700 border-gray-200'}">${c.type.replace('_',' ')}</span>
-            <div class="grid grid-cols-2 gap-4 mb-2 mt-2"><div><p class="text-xs text-gray-400 mb-1">Original:</p><p class="text-sm line-through text-red-600">${c.original}</p></div><div><p class="text-xs text-gray-400 mb-1">Corrected:</p><p class="text-sm text-green-600 flex items-center gap-1"><i data-lucide="arrow-right" class="w-3 h-3"></i>${c.corrected}</p></div></div>
-            ${state.selectedCorrection===i ? `<div class="mt-2 pt-2 border-t border-blue-200 fade-in"><p class="text-xs font-medium text-gray-400 mb-1">Explanation:</p><p class="text-sm">${c.explanation}</p></div>` : ''}
-          </div>`).join('')}
-        </div></div>` : ''}
-      </div>`;
-    }
+      var typeColors = { grammar: 'bg-red-100 text-red-700 border-red-200', spelling: 'bg-orange-100 text-orange-700 border-orange-200', punctuation: 'bg-yellow-100 text-yellow-700 border-yellow-200', phrasing: 'bg-blue-100 text-blue-700 border-blue-200', word_choice: 'bg-purple-100 text-purple-700 border-purple-200', consistency: 'bg-indigo-100 text-indigo-700 border-indigo-200' };
+      var scoreColor = state.proofScore >= 90 ? 'text-green-600' : state.proofScore >= 70 ? 'text-amber-600' : 'text-red-600';
+      var scoreLabel = state.proofScore >= 95 ? 'Excellent' : state.proofScore >= 85 ? 'Very Good' : state.proofScore >= 70 ? 'Good' : state.proofScore >= 50 ? 'Needs Work' : 'Significant Revision Needed';
+      var scoreBg = state.proofScore >= 85 ? 'bg-green-50 border-green-200' : state.proofScore >= 70 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
 
-    async function doProofread() {
-      if (!state.apiKey) { state.proofError = 'Add API key in Settings'; render(); return; }
-      if (!state.proofText.trim()) { state.proofError = 'Enter some text'; render(); return; }
-      state.proofLoading = true; state.proofError = ''; state.corrections = []; state.proofScore = 0; state.correctedText = ''; state.selectedCorrection = null; render();
-      try {
-        const result = await proofreadText(state.proofText);
-        state.corrections = result.corrections || [];
-        state.proofScore = result.score || 0;
-        let corrected = state.proofText;
-        (result.corrections || []).forEach(c => { corrected = corrected.replace(c.original, c.corrected); });
-        state.correctedText = corrected;
-      } catch(e) { state.proofError = e.message; }
-      state.proofLoading = false; render();
+      var h = '<div class="p-6 max-w-7xl mx-auto fade-in">';
+      h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Proofreading Tool</h1><p class="text-gray-500">Grammar, spelling, and style checking for academic writing</p></div>';
+      if (state.proofError) h += '<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">' + icon('alert-circle') + escHtml(state.proofError) + '</div>';
+      if (state.proofScore > 0) {
+        h += '<div class="mb-6 p-4 rounded-xl border ' + scoreBg + '"><div class="flex items-center gap-4"><div class="text-4xl font-bold ' + scoreColor + '">' + state.proofScore + '</div><div><p class="font-medium">Quality Score: ' + scoreLabel + '</p><p class="text-sm text-gray-500">' + state.corrections.length + ' issue' + (state.corrections.length !== 1 ? 's' : '') + ' found</p></div></div></div>';
+      }
+      h += '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">';
+      // Original
+      h += '<div class="space-y-3"><div class="flex items-center justify-between"><label class="text-sm font-medium">Original Text</label>';
+      h += '<button onclick="doProofread()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2"' + (state.proofLoading?' disabled':'') + '>';
+      if (state.proofLoading) h += '<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spin"></div> Checking...';
+      else h += icon('check-circle', 16) + ' Proofread';
+      h += '</button></div>';
+      h += '<textarea id="ptext" placeholder="Paste your text here..." class="w-full h-64 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">' + escHtml(state.proofText) + '</textarea>';
+      h += '<div class="text-xs text-gray-400 text-right">' + state.proofText.split(/\s+/).filter(Boolean).length + ' words</div></div>';
+      // Corrected
+      h += '<div class="space-y-3"><div class="flex items-center justify-between"><label class="text-sm font-medium">Corrected Text</label>';
+      if (state.correctedText) h += '<button onclick="navigator.clipboard.writeText(state.correctedText)" class="p-1.5 hover:bg-gray-100 rounded text-gray-500" title="Copy">' + icon('copy') + '</button>';
+      h += '</div>';
+      h += '<div class="w-full h-64 p-4 border border-gray-200 rounded-xl bg-gray-50 overflow-y-auto text-sm leading-relaxed">';
+      h += state.correctedText || '<span class="text-gray-400">Corrected text will appear here</span>';
+      h += '</div></div></div>';
+      // Corrections list
+      if (state.corrections.length > 0) {
+        h += '<div class="mt-6"><h3 class="text-sm font-medium mb-3">Detailed Corrections</h3><div class="space-y-3">';
+        state.corrections.forEach(function(c, i) {
+          var sel = state.selectedCorrection === i;
+          h += '<div class="p-4 rounded-xl border cursor-pointer transition-all ' + (sel ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300') + '" onclick="state.selectedCorrection=state.selectedCorrection===' + i + '?null:' + i + ';render();">';
+          h += '<span class="text-xs px-2 py-0.5 rounded-full border ' + (typeColors[c.type]||'bg-gray-100 text-gray-700 border-gray-200') + '">' + c.type.replace(/_/g, ' ') + '</span>';
+          h += '<div class="grid grid-cols-2 gap-4 mt-2"><div><p class="text-xs text-gray-400 mb-1">Original:</p><p class="text-sm line-through text-red-600">' + escHtml(c.original) + '</p></div>';
+          h += '<div><p class="text-xs text-gray-400 mb-1">Corrected:</p><p class="text-sm text-green-600 flex items-center gap-1">' + icon('arrow-right') + escHtml(c.corrected) + '</p></div></div>';
+          if (sel) h += '<div class="mt-2 pt-2 border-t border-blue-200 fade-in"><p class="text-xs font-medium text-gray-400 mb-1">Explanation:</p><p class="text-sm">' + escHtml(c.explanation) + '</p></div>';
+          h += '</div>';
+        });
+        h += '</div></div>';
+      }
+      h += '</div>';
+      return h;
     }
 
     function renderThesis() {
@@ -555,173 +630,178 @@ Return JSON:
     }
 
     function renderThesisSetup() {
-      return `<div class="p-6 max-w-3xl mx-auto fade-in">
-        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Thesis Generator</h1><p class="text-gray-500">Structure and draft your thesis with university-compliant templates</p></div>
-        ${state.thesisError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.thesisError}</div>` : ''}
-        <div class="space-y-6 bg-white border border-gray-200 rounded-xl p-6">
-          <div><label class="block text-sm font-medium mb-2">Thesis Topic / Title</label>
-            <input type="text" value="${state.thesisTopic}" oninput="state.thesisTopic=this.value;render()" placeholder="e.g., The Impact of Social Media on Mental Health" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"></div>
-          <div class="grid grid-cols-2 gap-4">
-            <div><label class="block text-sm font-medium mb-2">Degree Level</label>
-              <select oninput="state.thesisDegree=this.value;render()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
-                <option value="">Select...</option>
-                ${['Bachelor','Master','PhD','MPhil','MRes'].map(d => `<option value="${d}" ${state.thesisDegree===d?'selected':''}>${d}</option>`).join('')}
-              </select></div>
-            <div><label class="block text-sm font-medium mb-2">Department / Field</label>
-              <input type="text" value="${state.thesisDept}" oninput="state.thesisDept=this.value;render()" placeholder="e.g., Psychology" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"></div>
-          </div>
-          <div><label class="block text-sm font-medium mb-2">University</label>
-            <select oninput="state.thesisUni=this.value;render()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
-              <option value="">Custom</option>
-              ${Object.entries(UNIVERSITIES).map(([k,v]) => `<option value="${k}" ${state.thesisUni===k?'selected':''}>${v.name}</option>`).join('')}
-            </select>
-            ${state.thesisUni && UNIVERSITIES[state.thesisUni] ? `<div class="mt-2 p-3 bg-gray-100 rounded-lg text-xs text-gray-500"><p class="font-medium text-gray-900 mb-1">Guidelines:</p><ul class="space-y-1">${UNIVERSITIES[state.thesisUni].rules.map(r => `<li>• ${r}</li>`).join('')}</ul></div>` : ''}
-          </div>
-          <button onclick="doGenerateStructure()" class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2" ${state.thesisLoading?'disabled':''}>
-            ${state.thesisLoading ? `<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full spinner"></div> Generating...` : `<i data-lucide="file-text" class="w-5 h-5"></i> Generate Thesis Structure`}
-          </button>
-        </div>
-      </div>`;
-    }
-
-    async function doGenerateStructure() {
-      if (!state.apiKey) { state.thesisError = 'Add API key in Settings'; render(); return; }
-      if (!state.thesisTopic || !state.thesisDegree) { state.thesisError = 'Enter topic and degree'; render(); return; }
-      state.thesisLoading = true; state.thesisError = ''; render();
-      try {
-        const result = await generateThesisStructure(state.thesisTopic, state.thesisDegree, state.thesisDept, state.thesisUni);
-        state.thesisSections = result.structure.map((s, i) => ({
-          id: `section-${i}`, title: s.title, description: s.description, wordCount: s.wordCount,
-          subsections: s.subsections, content: '', notes: '', expanded: i === 0,
-        }));
-        state.thesisTotalWords = result.totalWords;
-        state.thesisStep = 'structure';
-      } catch(e) { state.thesisError = e.message; }
-      state.thesisLoading = false; render();
+      var h = '<div class="p-6 max-w-3xl mx-auto fade-in">';
+      h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Thesis Generator</h1><p class="text-gray-500">Structure and draft your thesis with university-compliant templates</p></div>';
+      if (state.thesisError) h += '<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">' + icon('alert-circle') + escHtml(state.thesisError) + '</div>';
+      h += '<div class="space-y-6 bg-white border border-gray-200 rounded-xl p-6">';
+      h += '<div><label class="block text-sm font-medium mb-2">Thesis Topic / Title</label>';
+      h += '<input type="text" id="ttopic" value="' + escHtml(state.thesisTopic) + '" placeholder="e.g., The Impact of Social Media on Mental Health" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"></div>';
+      h += '<div class="grid grid-cols-2 gap-4">';
+      h += '<div><label class="block text-sm font-medium mb-2">Degree Level</label>';
+      h += '<select id="tdegree" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">';
+      h += '<option value="">Select...</option>';
+      ['Bachelor','Master','PhD','MPhil','MRes'].forEach(function(d) { h += '<option value="' + d + '"' + (state.thesisDegree===d?' selected':'') + '>' + d + '</option>'; });
+      h += '</select></div>';
+      h += '<div><label class="block text-sm font-medium mb-2">Department / Field</label>';
+      h += '<input type="text" id="tdept" value="' + escHtml(state.thesisDept) + '" placeholder="e.g., Psychology" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"></div>';
+      h += '</div>';
+      h += '<div><label class="block text-sm font-medium mb-2">University</label>';
+      h += '<select id="tuni" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">';
+      h += '<option value="">Custom</option>';
+      Object.keys(UNIVERSITIES).forEach(function(k) { h += '<option value="' + k + '"' + (state.thesisUni===k?' selected':'') + '>' + UNIVERSITIES[k].name + '</option>'; });
+      h += '</select>';
+      if (state.thesisUni && UNIVERSITIES[state.thesisUni]) {
+        var u = UNIVERSITIES[state.thesisUni];
+        h += '<div class="mt-2 p-3 bg-gray-100 rounded-lg text-xs text-gray-500"><p class="font-medium text-gray-900 mb-1">Guidelines:</p><ul class="space-y-1">';
+        u.rules.forEach(function(r) { h += '<li>&bull; ' + escHtml(r) + '</li>'; });
+        h += '</ul></div>';
+      }
+      h += '</div>';
+      h += '<button onclick="doGenerateStructure()" class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2"' + (state.thesisLoading?' disabled':'') + '>';
+      if (state.thesisLoading) h += '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full spin"></div> Generating...';
+      else h += icon('file-text') + ' Generate Thesis Structure';
+      h += '</button></div></div>';
+      return h;
     }
 
     function renderThesisEditor() {
-      const drafted = state.thesisSections.filter(s => s.content.length > 0).length;
-      const total = state.thesisSections.length;
-      const pct = total ? (drafted/total)*100 : 0;
-      return `<div class="p-6 max-w-6xl mx-auto fade-in">
-        <div class="flex items-center justify-between mb-6">
-          <div><h1 class="text-2xl font-bold mb-1">Thesis: ${state.thesisTopic}</h1><p class="text-gray-500">${state.thesisDegree} · ${state.thesisDept || 'General'} · ${state.thesisUni ? UNIVERSITIES[state.thesisUni]?.name : 'Custom'}</p></div>
-          <div class="flex items-center gap-3">
-            <button onclick="addCustomSection()" class="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 flex items-center gap-2"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Section</button>
-            <button onclick="exportToWord()" class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"><i data-lucide="download" class="w-3.5 h-3.5"></i> Export to Word</button>
-          </div>
-        </div>
-        <div class="mb-6 p-4 bg-gray-100 rounded-xl">
-          <div class="flex items-center justify-between text-sm mb-2"><span class="font-medium">Progress</span><span class="text-gray-500">${drafted} / ${total} sections drafted</span></div>
-          <div class="w-full bg-gray-200 rounded-full h-2"><div class="bg-blue-600 h-2 rounded-full transition-all" style="width:${pct}%"></div></div>
-          <p class="text-xs text-gray-400 mt-2">Estimated total: ~${state.thesisTotalWords.toLocaleString()} words</p>
-        </div>
-        ${state.thesisError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.thesisError}</div>` : ''}
-        <div class="space-y-3">
-          ${state.thesisSections.map(sec => `
-            <div class="border border-gray-200 rounded-xl bg-white overflow-hidden">
-              <button onclick="toggleThesisSection('${sec.id}')" class="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
-                <div class="flex items-center gap-3 text-left">
-                  <i data-lucide="${sec.expanded ? 'chevron-down' : 'chevron-up'}" class="w-[18px] h-[18px]"></i>
-                  <div><h3 class="font-medium">${sec.title}</h3><p class="text-xs text-gray-500">~${sec.wordCount.toLocaleString()} words</p></div>
-                </div>
-                <div class="flex items-center gap-2">
-                  ${sec.content ? '<span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Drafted</span>' : '<span class="text-xs px-2 py-1 bg-gray-100 text-gray-400 rounded-full">Empty</span>'}
-                </div>
-              </button>
-              ${sec.expanded ? `<div class="p-4 border-t border-gray-200 space-y-4 fade-in">
-                <div><p class="text-xs font-medium text-gray-400 mb-1">What this section covers:</p><p class="text-sm text-gray-500">${sec.description}</p></div>
-                ${sec.subsections.length ? `<div><p class="text-xs font-medium text-gray-400 mb-2">Subsections:</p><div class="flex flex-wrap gap-2">${sec.subsections.map(s => `<span class="text-xs px-2 py-1 bg-gray-100 rounded">${s}</span>`).join('')}</div></div>` : ''}
-                <div><label class="text-xs font-medium text-gray-400 mb-1 block">Your Notes & Arguments:</label>
-                  <textarea oninput="updateSectionNotes('${sec.id}',this.value)" placeholder="Add your key points..." class="w-full h-24 p-3 border border-gray-200 rounded-lg bg-gray-50 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-600">${sec.notes || ''}</textarea>
-                </div>
-                <div>
-                  <div class="flex items-center justify-between mb-2">
-                    <label class="text-xs font-medium text-gray-400">Section Content:</label>
-                    <button onclick="doExpandSection('${sec.id}')" class="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1" ${state.currentGenSection===sec.id?'disabled':''}>
-                      ${state.currentGenSection===sec.id ? `<div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full spinner"></div> Generating...` : (sec.content ? 'Regenerate' : 'Generate')}
-                    </button>
-                  </div>
-                  <textarea oninput="updateSectionContent('${sec.id}',this.value)" placeholder="Generated content appears here, or write manually..." class="w-full h-48 p-3 border border-gray-200 rounded-lg bg-gray-50 resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${sec.content || ''}</textarea>
-                  <p class="text-xs text-gray-400 mt-1">${(sec.content||'').split(/\s+/).filter(Boolean).length} words</p>
-                </div>
-              </div>` : ''}
-            </div>
-          `).join('')}
-        </div>
-      </div>`;
-    }
+      var drafted = state.thesisSections.filter(function(s) { return s.content.length > 0; }).length;
+      var total = state.thesisSections.length;
+      var pct = total ? Math.round((drafted / total) * 100) : 0;
+      var uniName = state.thesisUni && UNIVERSITIES[state.thesisUni] ? UNIVERSITIES[state.thesisUni].name : 'Custom';
 
-    function toggleThesisSection(id) { state.thesisSections = state.thesisSections.map(s => s.id===id ? {...s, expanded: !s.expanded} : s); render(); }
-    function updateSectionNotes(id, notes) { state.thesisSections = state.thesisSections.map(s => s.id===id ? {...s, notes} : s); }
-    function updateSectionContent(id, content) { state.thesisSections = state.thesisSections.map(s => s.id===id ? {...s, content} : s); }
-    function addCustomSection() {
-      state.thesisSections.push({ id: `custom-${Date.now()}`, title: 'New Section', description: 'Custom section', wordCount: 1000, subsections: [], content: '', notes: '', expanded: true });
-      render();
-    }
-
-    async function doExpandSection(id) {
-      const sec = state.thesisSections.find(s => s.id === id);
-      if (!sec || !state.apiKey) return;
-      state.currentGenSection = id; render();
-      try {
-        const content = await expandSection(sec.title, sec.description, state.thesisTopic, sec.notes);
-        state.thesisSections = state.thesisSections.map(s => s.id === id ? {...s, content, expanded: true} : s);
-      } catch(e) { state.thesisError = e.message; }
-      state.currentGenSection = null; render();
+      var h = '<div class="p-6 max-w-6xl mx-auto fade-in">';
+      h += '<div class="flex items-center justify-between mb-6"><div>';
+      h += '<h1 class="text-2xl font-bold mb-1">Thesis: ' + escHtml(state.thesisTopic) + '</h1>';
+      h += '<p class="text-gray-500">' + escHtml(state.thesisDegree) + ' &middot; ' + escHtml(state.thesisDept || 'General') + ' &middot; ' + escHtml(uniName) + '</p></div>';
+      h += '<div class="flex items-center gap-3">';
+      h += '<button onclick="addCustomSection()" class="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 flex items-center gap-2">' + icon('plus') + ' Add Section</button>';
+      h += '<button onclick="exportToWord()" class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">' + icon('download') + ' Export to Word</button>';
+      h += '</div></div>';
+      // Progress
+      h += '<div class="mb-6 p-4 bg-gray-100 rounded-xl">';
+      h += '<div class="flex items-center justify-between text-sm mb-2"><span class="font-medium">Progress</span><span class="text-gray-500">' + drafted + ' / ' + total + ' sections drafted</span></div>';
+      h += '<div class="w-full bg-gray-200 rounded-full h-2"><div class="bg-blue-600 h-2 rounded-full transition-all" style="width:' + pct + '%"></div></div>';
+      h += '<p class="text-xs text-gray-400 mt-2">Estimated total: ~' + state.thesisTotalWords.toLocaleString() + ' words</p></div>';
+      if (state.thesisError) h += '<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">' + icon('alert-circle') + escHtml(state.thesisError) + '</div>';
+      // Sections
+      h += '<div class="space-y-3">';
+      state.thesisSections.forEach(function(sec) {
+        h += '<div class="border border-gray-200 rounded-xl bg-white overflow-hidden">';
+        h += '<button onclick="toggleThesisSection(\'' + sec.id + '\')" class="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">';
+        h += '<div class="flex items-center gap-3 text-left">' + icon(sec.expanded ? 'chevron-down' : 'chevron-up');
+        h += '<div><h3 class="font-medium">' + escHtml(sec.title) + '</h3><p class="text-xs text-gray-500">~' + sec.wordCount.toLocaleString() + ' words</p></div></div>';
+        h += '<div>' + (sec.content ? '<span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Drafted</span>' : '<span class="text-xs px-2 py-1 bg-gray-100 text-gray-400 rounded-full">Empty</span>') + '</div>';
+        h += '</button>';
+        if (sec.expanded) {
+          h += '<div class="p-4 border-t border-gray-200 space-y-4 fade-in">';
+          h += '<div><p class="text-xs font-medium text-gray-400 mb-1">What this section covers:</p><p class="text-sm text-gray-500">' + escHtml(sec.description) + '</p></div>';
+          if (sec.subsections.length) {
+            h += '<div><p class="text-xs font-medium text-gray-400 mb-2">Subsections:</p><div class="flex flex-wrap gap-2">';
+            sec.subsections.forEach(function(s) { h += '<span class="text-xs px-2 py-1 bg-gray-100 rounded">' + escHtml(s) + '</span>'; });
+            h += '</div></div>';
+          }
+          h += '<div><label class="text-xs font-medium text-gray-400 mb-1 block">Your Notes & Arguments:</label>';
+          h += '<textarea oninput="updateSectionNotes(\'' + sec.id + '\',this.value)" placeholder="Add your key points..." class="w-full h-24 p-3 border border-gray-200 rounded-lg bg-gray-50 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-600">' + escHtml(sec.notes || '') + '</textarea></div>';
+          h += '<div><div class="flex items-center justify-between mb-2"><label class="text-xs font-medium text-gray-400">Section Content:</label>';
+          h += '<button onclick="doExpandSection(\'' + sec.id + '\')" class="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"' + (state.currentGenSection===sec.id?' disabled':'') + '>';
+          if (state.currentGenSection===sec.id) h += '<div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full spin"></div> Generating...';
+          else h += icon('sparkles', 12) + ' ' + (sec.content ? 'Regenerate' : 'Generate');
+          h += '</button></div>';
+          h += '<textarea oninput="updateSectionContent(\'' + sec.id + '\',this.value)" placeholder="Generated content appears here, or write manually..." class="w-full h-48 p-3 border border-gray-200 rounded-lg bg-gray-50 resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">' + escHtml(sec.content || '') + '</textarea>';
+          h += '<p class="text-xs text-gray-400 mt-1">' + (sec.content||'').split(/\s+/).filter(Boolean).length + ' words</p></div>';
+          h += '</div>';
+        }
+        h += '</div>';
+      });
+      h += '</div></div>';
+      return h;
     }
 
     function renderSettings() {
-      const selUni = state.university ? UNIVERSITIES[state.university] : null;
-      return `<div class="p-6 max-w-4xl mx-auto fade-in">
-        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Settings</h1><p class="text-gray-500">Configure your API key, university, and citation preferences</p></div>
-        ${state.settingsSaved ? `<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i>Settings saved!</div>` : ''}
-        <div class="space-y-6">
-          <div class="p-6 bg-white border border-gray-200 rounded-xl">
-            <div class="flex items-center gap-3 mb-4"><div class="p-2 bg-blue-100 rounded-lg"><i data-lucide="key" class="w-5 h-5 text-blue-600"></i></div><div><h2 class="font-semibold">OpenAI API Key</h2><p class="text-xs text-gray-500">Stored in your browser only — never sent anywhere except OpenAI</p></div></div>
-            <div class="relative">
-              <input type="${state.showApiKey?'text':'password'}" value="${state.apiKey}" oninput="state.apiKey=this.value;render()" placeholder="sk-..." class="w-full px-3 py-2 pr-20 border border-gray-200 rounded-lg bg-gray-50 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-600">
-              <button onclick="state.showApiKey=!state.showApiKey;render()" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900 px-2 py-1">${state.showApiKey?'Hide':'Show'}</button>
-            </div>
-            <div class="mt-3 p-3 bg-gray-100 rounded-lg text-xs text-gray-500 space-y-1">
-              <p class="font-medium text-gray-900">How to get an API key:</p>
-              <ol class="list-decimal list-inside space-y-1"><li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 underline">platform.openai.com/api-keys</a></li><li>Sign in or create an account</li><li>Click "Create new secret key"</li><li>Copy and paste it here</li></ol>
-            </div>
-          </div>
-          <div class="p-6 bg-white border border-gray-200 rounded-xl">
-            <div class="flex items-center gap-3 mb-4"><div class="p-2 bg-emerald-100 rounded-lg"><i data-lucide="building" class="w-5 h-5 text-emerald-600"></i></div><div><h2 class="font-semibold">University</h2><p class="text-xs text-gray-500">Select your institution for formatting guidelines</p></div></div>
-            <select oninput="state.university=this.value;render()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
-              <option value="">Custom</option>
-              ${Object.entries(UNIVERSITIES).map(([k,v]) => `<option value="${k}" ${state.university===k?'selected':''}>${v.name}</option>`).join('')}
-            </select>
-            ${selUni ? `<div class="mt-4 p-4 bg-gray-100 rounded-lg space-y-3">
-              <h3 class="text-sm font-medium">${selUni.name} — Guidelines</h3>
-              <div class="grid grid-cols-2 gap-3 text-xs"><div><span class="text-gray-400">Citation:</span><p class="font-medium">${selUni.citationStyle.toUpperCase()}</p></div><div><span class="text-gray-400">Font:</span><p class="font-medium">${selUni.font} ${selUni.fontSize}pt</p></div><div><span class="text-gray-400">Spacing:</span><p class="font-medium">${selUni.lineSpacing}</p></div><div><span class="text-gray-400">Margins:</span><p class="font-medium">T:${selUni.margins.top} B:${selUni.margins.bottom} L:${selUni.margins.left} R:${selUni.margins.right} cm</p></div></div>
-              <div><span class="text-gray-400 text-xs">Structure:</span><div class="flex flex-wrap gap-1 mt-1">${selUni.structure.map(s => `<span class="text-xs px-2 py-0.5 bg-white border border-gray-200 rounded">${s}</span>`).join('')}</div></div>
-              <div><span class="text-gray-400 text-xs">Additional rules:</span><ul class="mt-1 space-y-1">${selUni.rules.map(r => `<li class="text-xs">• ${r}</li>`).join('')}</ul></div>
-            </div>` : ''}
-          </div>
-          <div class="p-6 bg-white border border-gray-200 rounded-xl">
-            <div class="flex items-center gap-3 mb-4"><div class="p-2 bg-violet-100 rounded-lg"><i data-lucide="book-open" class="w-5 h-5 text-violet-600"></i></div><div><h2 class="font-semibold">Default Citation Style</h2><p class="text-xs text-gray-500">Used in Citation Generator and Thesis Export</p></div></div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              ${Object.entries(CITATION_STYLES).map(([k,v]) => `<button onclick="state.citationStyle='${k}';render()" class="p-3 rounded-lg border text-left transition-all ${state.citationStyle===k?'border-blue-600 bg-blue-50':'border-gray-200 bg-gray-50 hover:border-blue-300'}"><p class="text-sm font-medium">${v.name}</p><p class="text-xs text-gray-400 mt-1">In-text: ${v.inText}</p></button>`).join('')}
-            </div>
-          </div>
-          <button onclick="saveAllSettings()" class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide="save" class="w-5 h-5"></i> Save Settings</button>
-        </div>
-      </div>`;
+      var selUni = state.university ? UNIVERSITIES[state.university] : null;
+      var h = '<div class="p-6 max-w-4xl mx-auto fade-in">';
+      h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Settings</h1><p class="text-gray-500">Configure your API key, university, and citation preferences</p></div>';
+      if (state.settingsSaved) h += '<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">' + icon('check-circle', 16) + ' Settings saved!</div>';
+      // API Key
+      h += '<div class="space-y-6">';
+      h += '<div class="p-6 bg-white border border-gray-200 rounded-xl">';
+      h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-blue-100 rounded-lg">' + icon('key') + '</div><div><h2 class="font-semibold">OpenAI API Key</h2><p class="text-xs text-gray-500">Stored in your browser only</p></div></div>';
+      h += '<div class="relative">';
+      h += '<input type="' + (state.showApiKey ? 'text' : 'password') + '" id="apikey" value="' + escHtml(state.apiKey) + '" placeholder="sk-..." class="w-full px-3 py-2 pr-20 border border-gray-200 rounded-lg bg-gray-50 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-600">';
+      h += '<button onclick="state.showApiKey=!state.showApiKey;render()" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900 px-2 py-1">' + (state.showApiKey ? 'Hide' : 'Show') + '</button>';
+      h += '</div>';
+      h += '<div class="mt-3 p-3 bg-gray-100 rounded-lg text-xs text-gray-500 space-y-1">';
+      h += '<p class="font-medium text-gray-900">How to get an API key:</p>';
+      h += '<ol class="list-decimal list-inside space-y-1"><li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 underline">platform.openai.com/api-keys</a></li><li>Sign in or create an account</li><li>Click "Create new secret key"</li><li>Copy and paste it here</li></ol></div></div>';
+      // University
+      h += '<div class="p-6 bg-white border border-gray-200 rounded-xl">';
+      h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-emerald-100 rounded-lg">' + icon('building') + '</div><div><h2 class="font-semibold">University</h2><p class="text-xs text-gray-500">Select your institution for formatting guidelines</p></div></div>';
+      h += '<select id="uni" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">';
+      h += '<option value="">Custom</option>';
+      Object.keys(UNIVERSITIES).forEach(function(k) { h += '<option value="' + k + '"' + (state.university===k?' selected':'') + '>' + UNIVERSITIES[k].name + '</option>'; });
+      h += '</select>';
+      if (selUni) {
+        h += '<div class="mt-4 p-4 bg-gray-100 rounded-lg space-y-3">';
+        h += '<h3 class="text-sm font-medium">' + escHtml(selUni.name) + ' &mdash; Guidelines</h3>';
+        h += '<div class="grid grid-cols-2 gap-3 text-xs">';
+        h += '<div><span class="text-gray-400">Citation:</span><p class="font-medium">' + selUni.citationStyle.toUpperCase() + '</p></div>';
+        h += '<div><span class="text-gray-400">Font:</span><p class="font-medium">' + escHtml(selUni.font) + ' ' + selUni.fontSize + 'pt</p></div>';
+        h += '<div><span class="text-gray-400">Spacing:</span><p class="font-medium">' + selUni.lineSpacing + '</p></div>';
+        h += '</div>';
+        h += '<div><span class="text-gray-400 text-xs">Structure:</span><div class="flex flex-wrap gap-1 mt-1">';
+        selUni.structure.forEach(function(s) { h += '<span class="text-xs px-2 py-0.5 bg-white border border-gray-200 rounded">' + escHtml(s) + '</span>'; });
+        h += '</div></div>';
+        h += '<div><span class="text-gray-400 text-xs">Additional rules:</span><ul class="mt-1 space-y-1">';
+        selUni.rules.forEach(function(r) { h += '<li class="text-xs">&bull; ' + escHtml(r) + '</li>'; });
+        h += '</ul></div></div>';
+      }
+      h += '</div>';
+      // Citation Style
+      h += '<div class="p-6 bg-white border border-gray-200 rounded-xl">';
+      h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-violet-100 rounded-lg">' + icon('book-open') + '</div><div><h2 class="font-semibold">Default Citation Style</h2><p class="text-xs text-gray-500">Used in Citation Generator and Thesis Export</p></div></div>';
+      h += '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">';
+      Object.keys(CITATION_STYLES).forEach(function(k) {
+        var v = CITATION_STYLES[k];
+        var active = state.citationStyle === k;
+        h += '<button onclick="state.citationStyle=\'' + k + '\';render()" class="p-3 rounded-lg border text-left transition-all ' + (active ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:border-blue-300') + '">';
+        h += '<p class="text-sm font-medium">' + v.name + '</p>';
+        h += '<p class="text-xs text-gray-400 mt-1">In-text: ' + escHtml(v.inText) + '</p></button>';
+      });
+      h += '</div></div>';
+      h += '<button onclick="saveAllSettings()" class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2">' + icon('save') + ' Save Settings</button>';
+      h += '</div></div>';
+      return h;
     }
 
-    function saveAllSettings() {
-      saveSettings();
-      state.settingsSaved = true;
-      setTimeout(() => { state.settingsSaved = false; render(); }, 3000);
-      render();
+    // ============ READ INPUTS ON RENDER ============
+    function syncInputs() {
+      var els = {
+        wtext: function(v) { state.writingText = v; },
+        wctx: function(v) { state.writingContext = v; },
+        csrc: function(v) { state.citationSource = v; },
+        cstyle: function(v) { state.citationStyleSelect = v; },
+        ptext: function(v) { state.proofText = v; },
+        ttopic: function(v) { state.thesisTopic = v; },
+        tdegree: function(v) { state.thesisDegree = v; },
+        tdept: function(v) { state.thesisDept = v; },
+        tuni: function(v) { state.thesisUni = v; },
+        apikey: function(v) { state.apiKey = v; },
+        uni: function(v) { state.university = v; },
+      };
+      Object.keys(els).forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', function() { els[id](el.value); });
+          // For select, also fire on change
+          if (el.tagName === 'SELECT') el.addEventListener('change', function() { els[id](el.value); });
+        }
+      });
     }
 
     // ============ INIT ============
     render();
+    syncInputs();
   </script>
 </body>
 </html>

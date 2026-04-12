@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Academic Writing Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx@9.5.1/build/index.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/openai@4.104.0/index.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { DEFAULT: '#2563eb', hover: '#1d4ed8', light: '#dbeafe' },
+            secondary: '#64748b',
+            muted: '#6b7280',
+            'muted-bg': '#f3f4f6',
+            sidebar: '#f8fafc',
+            'sidebar-border': '#e2e8f0',
+            card: '#ffffff',
+            'card-border': '#e5e7eb',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-white text-gray-900">
+  <div id="app"></div>
+
+  <script>
+    // ============ STATE ============
+    let state = {
+      activeTool: 'dashboard',
+      sidebarCollapsed: false,
+      apiKey: localStorage.getItem('awa-api-key') || '',
+      university: localStorage.getItem('awa-university') || '',
+      citationStyle: localStorage.getItem('awa-citation') || 'apa',
+      // Writing tool
+      writingText: '',
+      writingContext: 'academic',
+      suggestions: [],
+      writingLoading: false,
+      selectedSuggestion: null,
+      writingError: '',
+      // Citation tool
+      citationTab: 'generator',
+      citationSource: '',
+      citationStyleSelect: 'apa',
+      citationLoading: false,
+      citationError: '',
+      lastCitation: null,
+      bibliography: JSON.parse(localStorage.getItem('awa-biblio') || '[]'),
+      // Proofreading
+      proofText: '',
+      corrections: [],
+      proofScore: 0,
+      correctedText: '',
+      proofLoading: false,
+      proofError: '',
+      selectedCorrection: null,
+      // Thesis
+      thesisStep: 'setup',
+      thesisTopic: '',
+      thesisDegree: '',
+      thesisDept: '',
+      thesisUni: '',
+      thesisLoading: false,
+      thesisError: '',
+      thesisSections: [],
+      thesisTotalWords: 0,
+      currentGenSection: null,
+      // Settings
+      showApiKey: false,
+      settingsSaved: false,
+    };
+
+    // ============ UNIVERSITIES ============
+    const UNIVERSITIES = {
+      oxford: { name: 'University of Oxford', citationStyle: 'oscola', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Footnotes for citations','Separate bibliography'] },
+      cambridge: { name: 'University of Cambridge', citationStyle: 'harvard', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','Acknowledgements','TOC','List of Figures','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Harvard referencing','Word count stated'] },
+      harvard: { name: 'Harvard University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','Main Body','References','Appendices'], rules: ['Running head','Page numbers top right','APA 7th edition'] },
+      stanford: { name: 'Stanford University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, margins: { top: 2.54, bottom: 2.54, left: 3.18, right: 2.54 }, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['1-inch min margins','Double-spaced','APA or Chicago'] },
+      mit: { name: 'MIT', citationStyle: 'ieee', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, margins: { top: 2.54, bottom: 2.54, left: 2.54, right: 2.54 }, structure: ['Title Page','Abstract','Introduction','Background','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['IEEE style','Clear section numbering'] },
+    };
+
+    const CITATION_STYLES = {
+      apa: { name: 'APA 7th Edition', inText: '(Author, Year)' },
+      mla: { name: 'MLA 9th Edition', inText: '(Author Page)' },
+      chicago: { name: 'Chicago 17th', inText: '(Author Year, Page)' },
+      harvard: { name: 'Harvard', inText: '(Author, Year)' },
+      ieee: { name: 'IEEE', inText: '[1]' },
+      oxford: { name: 'Oxford', inText: 'Footnote¹' },
+      vancouver: { name: 'Vancouver', inText: '(1)' },
+    };
+
+    // ============ API FUNCTIONS ============
+    async function callOpenAI(messages, { temperature = 0.3, max_tokens = 4000, json = false } = {}) {
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
+        body: JSON.stringify({
+          model: 'gpt-4o', messages, temperature, max_tokens,
+          ...(json ? { response_format: { type: 'json_object' } } : {}),
+        })
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error?.message || 'API request failed');
+      }
+      const data = await resp.json();
+      return data.choices[0]?.message?.content || '';
+    }
+
+    async function analyzeWriting(text, context) {
+      const content = await callOpenAI([{
+        role: 'user',
+        content: `You are an expert academic writing tutor. Analyze this ${context} writing and provide suggestions.
+
+Analyze: clarity, structure, tone, vocabulary, flow.
+
+Text:
+"""
+${text}
+"""
+
+Return JSON only:
+{ "suggestions": [
+  { "id": "1", "original": "text snippet", "suggestion": "improved version", "explanation": "why this is better", "type": "clarity|structure|tone|vocabulary|flow", "severity": "low|medium|high" }
+]}
+Max 15 suggestions. Empty array if none needed.`
+      }], { json: true });
+
+      try {
+        const parsed = JSON.parse(content);
+        return parsed.suggestions || [];
+      } catch { return []; }
+    }
+
+    async function proofreadText(text) {
+      const content = await callOpenAI([{
+        role: 'user',
+        content: `Proofread this academic text. Return JSON only:
+{ "corrections": [{"original":"","corrected":"","type":"grammar|spelling|punctuation|phrasing|word_choice|consistency","explanation":""}], "score": 85 }
+
+Text:
+"""
+${text}
+"""`
+      }], { json: true });
+
+      try {
+        return JSON.parse(content);
+      } catch { return { corrections: [], score: 0 }; }
+    }
+
+    async function generateCitation(sourceInfo, style) {
+      const content = await callOpenAI([{
+        role: 'user',
+        content: `Format this source in ${style.toUpperCase()} style: ${sourceInfo}
+Return JSON: { "inText": "...", "reference": "...", "footnote": "..." }`
+      }], { json: true });
+
+      try {
+        return JSON.parse(content);
+      } catch { return { reference: content, inText: '', footnote: '' }; }
+    }
+
+    async function generateThesisStructure(topic, degree, dept, uni) {
+      const content = await callOpenAI([{
+        role: 'user',
+        content: `Create thesis structure for ${degree} in ${dept} at ${uni || 'Custom University'}.
+Topic: "${topic}"
+
+Return JSON:
+{ "structure": [{"title":"","description":"","wordCount":0,"subsections":[]}], "totalWords": 15000 }`
+      }], { json: true });
+
+      try { return JSON.parse(content); } catch { return { structure: [], totalWords: 0 }; }
+    }
+
+    async function expandSection(title, desc, topic, notes) {
+      return await callOpenAI([{
+        role: 'system',
+        content: `Help write a thesis section. Topic: ${topic}. Use [CITATION NEEDED] where real sources are required. Never fabricate facts. Student must verify all claims.`
+      }, {
+        role: 'user',
+        content: `Write content for "${title}".\nGuidance: ${desc}\nStudent notes: ${notes || 'Cover the subsections thoroughly.'}\n\nWrite comprehensive academic content with CITATION NEEDED markers.`
+      }], { temperature: 0.5, max_tokens: 4000 });
+    }
+
+    // ============ EXPORT TO WORD ============
+    async function exportToWord() {
+      if (!state.thesisSections.length) return;
+      try {
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = docx;
+        const doc = new Document({
+          sections: [{
+            properties: {},
+            children: state.thesisSections.flatMap((sec, idx) => {
+              const children = [];
+              children.push(new Paragraph({
+                heading: HeadingLevel.HEADING_1,
+                children: [new TextRun({ text: sec.title, bold: true, size: 28, font: 'Times New Roman' })],
+              }));
+              sec.subsections.forEach(sub => {
+                children.push(new Paragraph({
+                  heading: HeadingLevel.HEADING_2,
+                  children: [new TextRun({ text: sub, bold: true, size: 24, font: 'Times New Roman' })],
+                }));
+              });
+              if (sec.content) {
+                sec.content.split('\n\n').filter(Boolean).forEach(para => {
+                  const t = para.trim();
+                  if (t) {
+                    if (t.startsWith('##') || t.startsWith('# ')) {
+                      children.push(new Paragraph({
+                        heading: HeadingLevel.HEADING_2,
+                        spacing: { before: 200, after: 100 },
+                        children: [new TextRun({ text: t.replace(/^#+\s*/,'').replace(/\*\*/g,''), bold: true, size: 24, font: 'Times New Roman' })],
+                      }));
+                    } else {
+                      children.push(new Paragraph({
+                        spacing: { after: 120, line: 360 },
+                        children: [new TextRun({ text: t, size: 24, font: 'Times New Roman' })],
+                      }));
+                    }
+                  }
+                });
+              }
+              if (idx < state.thesisSections.length - 1) children.push(new Paragraph({ children: [new PageBreak()] }));
+              return children;
+            }),
+          }],
+        });
+        const blob = await Packer.toBlob(doc);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${state.thesisTopic.replace(/[^a-z0-9]/gi,'_').substring(0,30)}_thesis.docx`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Export failed: ' + e.message);
+      }
+    }
+
+    // ============ SAVE HELPERS ============
+    function saveSettings() {
+      localStorage.setItem('awa-api-key', state.apiKey);
+      localStorage.setItem('awa-university', state.university);
+      localStorage.setItem('awa-citation', state.citationStyle);
+    }
+    function saveBiblio() {
+      localStorage.setItem('awa-biblio', JSON.stringify(state.bibliography));
+    }
+
+    // ============ RENDER ============
+    function render() {
+      const app = document.getElementById('app');
+      const tools = [
+        { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+        { id: 'writing', label: 'Writing Assistant', icon: 'pen-tool' },
+        { id: 'citation', label: 'Citations & Formatting', icon: 'book-open' },
+        { id: 'proofreading', label: 'Proofreading', icon: 'check-circle' },
+        { id: 'thesis', label: 'Thesis Generator', icon: 'file-text' },
+        { id: 'settings', label: 'Settings', icon: 'settings' },
+      ];
+
+      const sidebarW = state.sidebarCollapsed ? 'w-16' : 'w-64';
+
+      app.innerHTML = `
+        <div class="flex h-screen">
+          <!-- Sidebar -->
+          <aside class="${sidebarW} flex flex-col border-r border-gray-200 bg-gray-50 transition-all duration-300">
+            <div class="flex items-center justify-between p-4 border-b border-gray-200">
+              ${!state.sidebarCollapsed ? `<div class="flex items-center gap-2"><div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><i data-lucide="pen-tool" class="w-4 h-4 text-white"></i></div><span class="font-bold text-sm">Academic WA</span></div>` : ''}
+              <button onclick="toggleSidebar()" class="p-1.5 rounded-lg hover:bg-gray-200 transition-colors">
+                <i data-lucide="${state.sidebarCollapsed ? 'chevron-right' : 'chevron-left'}" class="w-[18px] h-[18px]"></i>
+              </button>
+            </div>
+            <nav class="flex-1 p-2 space-y-1">
+              ${tools.map(t => `
+                <button onclick="setTool('${t.id}')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm font-medium ${state.activeTool === t.id ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-200'}" ${state.sidebarCollapsed ? `title="${t.label}"` : ''}>
+                  <i data-lucide="${t.icon}" class="w-5 h-5"></i>
+                  ${!state.sidebarCollapsed ? `<span>${t.label}</span>` : ''}
+                </button>
+              `).join('')}
+            </nav>
+            ${!state.sidebarCollapsed ? `<div class="p-4 border-t border-gray-200"><p class="text-xs text-gray-400">Academic Writing Assistant</p><p class="text-xs text-gray-400 mt-1">For legitimate academic improvement</p></div>` : ''}
+          </aside>
+          <!-- Main -->
+          <main class="flex-1 overflow-auto bg-white">
+            ${renderTool()}
+          </main>
+        </div>
+      `;
+      lucide.createIcons();
+    }
+
+    function toggleSidebar() { state.sidebarCollapsed = !state.sidebarCollapsed; render(); }
+    function setTool(id) { state.activeTool = id; state.writingError = ''; state.citationError = ''; state.proofError = ''; state.thesisError = ''; render(); }
+
+    // ============ TOOL RENDERS ============
+    function renderTool() {
+      switch (state.activeTool) {
+        case 'dashboard': return renderDashboard();
+        case 'writing': return renderWriting();
+        case 'citation': return renderCitation();
+        case 'proofreading': return renderProofreading();
+        case 'thesis': return renderThesis();
+        case 'settings': return renderSettings();
+        default: return renderDashboard();
+      }
+    }
+
+    function renderDashboard() {
+      const tools = [
+        { id: 'writing', title: 'Writing Improvement Tool', icon: 'pen-tool', color: 'bg-blue-500', desc: 'Get AI-powered suggestions with clear explanations to improve your academic writing.', features: ['Clarity','Structure','Tone','Vocabulary','Flow'] },
+        { id: 'citation', title: 'Citations & Formatting', icon: 'book-open', color: 'bg-emerald-500', desc: 'Generate perfectly formatted citations and follow university-specific guidelines.', features: ['7 citation styles','University templates','Bibliography builder','Format validation'] },
+        { id: 'proofreading', title: 'Proofreading Tool', icon: 'check-circle', color: 'bg-violet-500', desc: 'Comprehensive grammar, spelling, and style checking for academic writing.', features: ['Grammar','Spelling','Academic style','Consistency','Quality scoring'] },
+        { id: 'thesis', title: 'Thesis Generator', icon: 'file-text', color: 'bg-amber-500', desc: 'Structure and draft your thesis with university-compliant templates. Export to Word.', features: ['Custom structure','Section drafting','Word export','University compliance'] },
+      ];
+      const tips = [
+        'Always write your first draft yourself, then use tools to improve',
+        'Verify all AI-suggested citations against original sources',
+        'Check your university\'s specific guidelines before final submission',
+        'Use the Writing Assistant to learn, not just to fix text',
+      ];
+      return `<div class="p-8 max-w-7xl mx-auto fade-in">
+        <h1 class="text-3xl font-bold mb-2">Academic Writing Assistant</h1>
+        <p class="text-gray-500 text-lg mb-8">Legitimate tools to improve your academic writing skills</p>
+        <div class="mb-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
+          <h3 class="font-semibold text-blue-600 mb-3">Best Practices</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            ${tips.map(t => `<div class="flex items-start gap-2 text-sm"><i data-lucide="lightbulb" class="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0"></i><span class="text-gray-500">${t}</span></div>`).join('')}
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          ${tools.map(t => `<div class="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-all">
+            <div class="flex items-start gap-4 mb-4">
+              <div class="p-3 rounded-lg ${t.color} text-white"><i data-lucide="${t.icon}" class="w-6 h-6"></i></div>
+              <div><h2 class="text-xl font-semibold">${t.title}</h2><p class="text-sm text-gray-500 mt-1">${t.desc}</p></div>
+            </div>
+            <div class="space-y-2"><p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Features:</p>
+              <div class="flex flex-wrap gap-2">${t.features.map(f => `<span class="text-xs px-2 py-1 bg-gray-100 rounded-md text-gray-500">${f}</span>`).join('')}</div>
+            </div>
+          </div>`).join('')}
+        </div>
+        <div class="mt-8 p-6 bg-gray-100 rounded-xl">
+          <h2 class="text-lg font-semibold mb-3">Getting Started</h2>
+          <ol class="space-y-2 text-gray-500">
+            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span><span>Go to <strong class="text-gray-900">Settings</strong> and add your OpenAI API key</span></li>
+            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span><span>Select your university or use custom settings</span></li>
+            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span><span>Choose a tool from the sidebar and paste your writing</span></li>
+            <li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span><span>Review suggestions and learn from the explanations</span></li>
+          </ol>
+        </div>
+      </div>`;
+    }
+
+    function renderWriting() {
+      const severityColors = { low: 'bg-blue-100 text-blue-700 border-blue-200', medium: 'bg-amber-100 text-amber-700 border-amber-200', high: 'bg-red-100 text-red-700 border-red-200' };
+      const typeIcons = { clarity: 'book-open', structure: 'alert-circle', tone: 'check-circle', vocabulary: 'pen-tool', flow: 'arrow-right' };
+      return `<div class="p-6 max-w-7xl mx-auto fade-in h-full flex flex-col">
+        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Writing Improvement Tool</h1><p class="text-gray-500">Paste your writing and get actionable suggestions with explanations</p></div>
+        ${state.writingError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.writingError}</div>` : ''}
+        <div class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
+          <div class="flex flex-col">
+            <div class="flex items-center justify-between mb-3">
+              <label class="text-sm font-medium">Your Writing</label>
+              <div class="flex items-center gap-3">
+                <select onchange="state.writingContext=this.value;render()" class="text-sm px-2 py-1 rounded-lg border border-gray-200 bg-white">
+                  ${['academic','essay','report','literature_review'].map(c => `<option value="${c}" ${state.writingContext===c?'selected:''}>${c.replace('_',' ').replace(/\b\w/g,l=>l.toUpperCase())}</option>`).join('')}
+                </select>
+                <button onclick="doAnalyze()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2" ${state.writingLoading?'disabled':''}>
+                  ${state.writingLoading ? `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner"></div> Analyzing...` : `<i data-lucide="pen-tool" class="w-4 h-4"></i> Analyze`}
+                </button>
+              </div>
+            </div>
+            <textarea oninput="state.writingText=this.value;render()" placeholder="Paste your academic writing here..." class="flex-1 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${state.writingText}</textarea>
+            <div class="mt-2 text-xs text-gray-400 text-right">${state.writingText.split(/\s+/).filter(Boolean).length} words</div>
+          </div>
+          <div class="flex flex-col overflow-hidden">
+            <label class="text-sm font-medium mb-3">Suggestions ${state.suggestions.length > 0 ? `(${state.suggestions.length})` : ''}</label>
+            ${state.writingLoading ? `<div class="flex-1 flex items-center justify-center text-gray-500"><div class="text-center"><div class="w-8 h-8 border-3 border-gray-300 border-t-blue-600 rounded-full spinner mx-auto mb-3"></div><p class="text-sm">Analyzing your writing...</p></div></div>` :
+            state.suggestions.length === 0 ? `<div class="flex-1 flex items-center justify-center text-gray-400 text-sm">${state.writingText ? 'Click Analyze to get suggestions' : 'Enter text to analyze'}</div>` :
+            `<div class="flex-1 overflow-y-auto space-y-3 pr-2">
+              ${state.suggestions.map(s => `
+                <button onclick="state.selectedSuggestion=state.selectedSuggestion==='${s.id}'?null:'${s.id}';render()" class="w-full text-left p-4 rounded-xl border transition-all ${state.selectedSuggestion===s.id ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300'}">
+                  <div class="flex items-start justify-between gap-2 mb-2">
+                    <div class="flex items-center gap-2"><i data-lucide="${typeIcons[s.type]}" class="w-4 h-4 text-gray-500"></i><span class="text-xs font-medium uppercase tracking-wide text-gray-400">${s.type}</span></div>
+                    <span class="text-xs px-2 py-0.5 rounded-full border ${severityColors[s.severity]}">${s.severity}</span>
+                  </div>
+                  <p class="text-sm text-gray-400 line-clamp-2 mb-1">"${s.original}"</p>
+                  ${state.selectedSuggestion===s.id ? `<div class="mt-3 pt-3 border-t border-blue-200 space-y-3 fade-in"><div><p class="text-xs font-medium text-gray-400 mb-1">Suggestion:</p><p class="text-sm text-blue-600 bg-blue-50/50 p-2 rounded">${s.suggestion}</p></div><div><p class="text-xs font-medium text-gray-400 mb-1">Why this helps:</p><p class="text-sm">${s.explanation}</p></div></div>` : ''}
+                </button>
+              `).join('')}
+            </div>`}
+          </div>
+        </div>
+      </div>`;
+    }
+
+    async function doAnalyze() {
+      if (!state.apiKey) { state.writingError = 'Add your API key in Settings first'; render(); return; }
+      if (!state.writingText.trim()) { state.writingError = 'Enter some text to analyze'; render(); return; }
+      state.writingLoading = true; state.writingError = ''; state.suggestions = []; state.selectedSuggestion = null; render();
+      try {
+        state.suggestions = await analyzeWriting(state.writingText, state.writingContext);
+      } catch(e) { state.writingError = e.message; }
+      state.writingLoading = false; render();
+    }
+
+    function renderCitation() {
+      return `<div class="p-6 max-w-5xl mx-auto fade-in">
+        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Citations & Formatting</h1><p class="text-gray-500">Generate perfectly formatted citations for your academic work</p></div>
+        <div class="flex gap-2 mb-6">
+          <button onclick="state.citationTab='generator';render()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors ${state.citationTab==='generator'?'bg-blue-600 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}">Citation Generator</button>
+          <button onclick="state.citationTab='bibliography';render()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors ${state.citationTab==='bibliography'?'bg-blue-600 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}">Bibliography (${state.bibliography.length})</button>
+        </div>
+        ${state.citationError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.citationError}</div>` : ''}
+        ${state.citationTab === 'generator' ? renderCitationGenerator() : renderBibliography()}
+      </div>`;
+    }
+
+    function renderCitationGenerator() {
+      return `<div class="space-y-6">
+        <div class="flex items-center gap-4">
+          <label class="text-sm font-medium">Citation Style:</label>
+          <select onchange="state.citationStyleSelect=this.value;render()" class="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm">
+            ${Object.entries(CITATION_STYLES).map(([k,v]) => `<option value="${k}" ${state.citationStyleSelect===k?'selected':''}>${v.name}</option>`).join('')}
+          </select>
+          ${state.university ? `<span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">Uni: ${UNIVERSITIES[state.university]?.name || state.university}</span>` : ''}
+        </div>
+        <div class="space-y-3">
+          <label class="text-sm font-medium">Source Information</label>
+          <textarea oninput="state.citationSource=this.value;render()" placeholder="Enter source details, e.g.:&#10;- Book: Author name, title, publisher, year, ISBN&#10;- Journal: Authors, article title, journal name, volume, issue, pages, DOI&#10;- Or paste a DOI/URL" class="w-full h-32 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${state.citationSource}</textarea>
+          <button onclick="doGenerateCitation()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2" ${state.citationLoading?'disabled':''}>
+            ${state.citationLoading ? `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner"></div> Generating...` : `<i data-lucide="book-open" class="w-4 h-4"></i> Generate Citation`}
+          </button>
+        </div>
+        ${state.lastCitation ? `<div class="p-4 bg-white border border-gray-200 rounded-xl space-y-3 fade-in">
+          <div><p class="text-xs font-medium text-gray-400 mb-2">In-text citation:</p><div class="flex items-center justify-between p-3 bg-gray-100 rounded-lg"><code class="text-sm">${state.lastCitation.inText || 'N/A'}</code><button onclick="navigator.clipboard.writeText('${(state.lastCitation.inText||'').replace(/'/g,"\\'")}')" class="p-1 hover:bg-gray-200 rounded"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button></div></div>
+          <div><p class="text-xs font-medium text-gray-400 mb-2">Full reference:</p><div class="flex items-start justify-between p-3 bg-gray-100 rounded-lg"><p class="text-sm flex-1 pr-2">${state.lastCitation.reference}</p><button onclick="navigator.clipboard.writeText('${state.lastCitation.reference.replace(/'/g,"\\'")}')" class="p-1 hover:bg-gray-200 rounded flex-shrink-0"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button></div></div>
+          <button onclick="addToBiblio()" class="flex items-center gap-2 text-sm text-blue-600 hover:underline"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add to Bibliography</button>
+        </div>` : ''}
+        <div class="p-4 bg-gray-100 rounded-xl">
+          <p class="text-sm font-medium mb-2">Tips:</p>
+          <ul class="text-xs text-gray-500 space-y-1"><li>• Include as much detail as possible</li><li>• For DOIs, just paste the DOI number</li><li>• Always verify AI-generated citations against the official style guide</li></ul>
+        </div>
+      </div>`;
+    }
+
+    async function doGenerateCitation() {
+      if (!state.apiKey) { state.citationError = 'Add API key in Settings'; render(); return; }
+      if (!state.citationSource.trim()) { state.citationError = 'Enter source info'; render(); return; }
+      state.citationLoading = true; state.citationError = ''; state.lastCitation = null; render();
+      try {
+        state.lastCitation = await generateCitation(state.citationSource, state.citationStyleSelect);
+      } catch(e) { state.citationError = e.message; }
+      state.citationLoading = false; render();
+    }
+
+    function addToBiblio() {
+      if (!state.lastCitation) return;
+      state.bibliography.push({ id: Date.now().toString(), source: state.citationSource, reference: state.lastCitation.reference, inText: state.lastCitation.inText });
+      saveBiblio(); state.citationSource = ''; state.lastCitation = null; render();
+    }
+
+    function renderBibliography() {
+      if (state.bibliography.length === 0) return `<div class="text-center py-12 text-gray-400"><i data-lucide="book-open" class="w-12 h-12 mx-auto mb-3 opacity-50"></i><p>No citations yet</p></div>`;
+      return `<div class="space-y-4">
+        <div class="flex justify-end"><button onclick="navigator.clipboard.writeText(state.bibliography.map(c=>c.reference).join('\\n\\n'))" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy All</button></div>
+        <div class="space-y-3">
+          ${state.bibliography.map(c => `<div class="p-3 bg-white border border-gray-200 rounded-lg group">
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-sm flex-1">${c.reference}</p>
+              <div class="flex items-center gap-1">
+                <button onclick="navigator.clipboard.writeText('${c.reference.replace(/'/g,"\\'")}')" class="p-1 hover:bg-gray-100 rounded" title="Copy"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                <button onclick="state.bibliography=state.bibliography.filter(x=>x.id!=='${c.id}');saveBiblio();render()" class="p-1 hover:bg-red-50 rounded text-red-500" title="Remove"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+              </div>
+            </div>
+            ${c.inText ? `<p class="text-xs text-gray-400 mt-2">In-text: ${c.inText}</p>` : ''}
+          </div>`).join('')}
+        </div>
+      </div>`;
+    }
+
+    function renderProofreading() {
+      const typeColors = { grammar: 'bg-red-100 text-red-700 border-red-200', spelling: 'bg-orange-100 text-orange-700 border-orange-200', punctuation: 'bg-yellow-100 text-yellow-700 border-yellow-200', phrasing: 'bg-blue-100 text-blue-700 border-blue-200', word_choice: 'bg-purple-100 text-purple-700 border-purple-200', consistency: 'bg-indigo-100 text-indigo-700 border-indigo-200' };
+      const sc = (s) => s >= 90 ? 'text-green-600' : s >= 70 ? 'text-amber-600' : 'text-red-600';
+      const sl = (s) => s >= 95 ? 'Excellent' : s >= 85 ? 'Very Good' : s >= 70 ? 'Good' : s >= 50 ? 'Needs Work' : 'Significant Revision Needed';
+      return `<div class="p-6 max-w-7xl mx-auto fade-in">
+        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Proofreading Tool</h1><p class="text-gray-500">Grammar, spelling, and style checking for academic writing</p></div>
+        ${state.proofError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.proofError}</div>` : ''}
+        ${state.proofScore > 0 ? `<div class="mb-6 p-4 rounded-xl border ${state.proofScore>=85?'bg-green-50 border-green-200':state.proofScore>=70?'bg-amber-50 border-amber-200':'bg-red-50 border-red-200'}"><div class="flex items-center gap-4"><div class="text-4xl font-bold ${sc(state.proofScore)}">${state.proofScore}</div><div><p class="font-medium">Quality Score: ${sl(state.proofScore)}</p><p class="text-sm text-gray-500">${state.corrections.length} issue${state.corrections.length!==1?'s':''} found</p></div></div></div>` : ''}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between"><label class="text-sm font-medium">Original Text</label>
+              <button onclick="doProofread()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2" ${state.proofLoading?'disabled':''}>
+                ${state.proofLoading ? `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner"></div> Checking...` : `<i data-lucide="check-circle" class="w-4 h-4"></i> Proofread`}
+              </button>
+            </div>
+            <textarea oninput="state.proofText=this.value;render()" placeholder="Paste your text here for proofreading..." class="w-full h-64 p-4 border border-gray-200 rounded-xl resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${state.proofText}</textarea>
+            <div class="text-xs text-gray-400 text-right">${state.proofText.split(/\s+/).filter(Boolean).length} words</div>
+          </div>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between"><label class="text-sm font-medium">Corrected Text</label>
+              ${state.correctedText ? `<button onclick="navigator.clipboard.writeText(state.correctedText)" class="p-1.5 hover:bg-gray-100 rounded text-gray-500" title="Copy"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>` : ''}
+            </div>
+            <div class="w-full h-64 p-4 border border-gray-200 rounded-xl bg-gray-50 overflow-y-auto text-sm leading-relaxed">${state.correctedText || '<span class="text-gray-400">Corrected text will appear here</span>'}</div>
+          </div>
+        </div>
+        ${state.corrections.length > 0 ? `<div class="mt-6"><h3 class="text-sm font-medium mb-3">Detailed Corrections</h3><div class="space-y-3">
+          ${state.corrections.map((c,i) => `<div class="p-4 rounded-xl border cursor-pointer transition-all ${state.selectedCorrection===i?'border-blue-600 bg-blue-50':'border-gray-200 bg-white hover:border-blue-300'}" onclick="state.selectedCorrection=state.selectedCorrection===${i}?null:${i};render()">
+            <span class="text-xs px-2 py-0.5 rounded-full border ${typeColors[c.type]||'bg-gray-100 text-gray-700 border-gray-200'}">${c.type.replace('_',' ')}</span>
+            <div class="grid grid-cols-2 gap-4 mb-2 mt-2"><div><p class="text-xs text-gray-400 mb-1">Original:</p><p class="text-sm line-through text-red-600">${c.original}</p></div><div><p class="text-xs text-gray-400 mb-1">Corrected:</p><p class="text-sm text-green-600 flex items-center gap-1"><i data-lucide="arrow-right" class="w-3 h-3"></i>${c.corrected}</p></div></div>
+            ${state.selectedCorrection===i ? `<div class="mt-2 pt-2 border-t border-blue-200 fade-in"><p class="text-xs font-medium text-gray-400 mb-1">Explanation:</p><p class="text-sm">${c.explanation}</p></div>` : ''}
+          </div>`).join('')}
+        </div></div>` : ''}
+      </div>`;
+    }
+
+    async function doProofread() {
+      if (!state.apiKey) { state.proofError = 'Add API key in Settings'; render(); return; }
+      if (!state.proofText.trim()) { state.proofError = 'Enter some text'; render(); return; }
+      state.proofLoading = true; state.proofError = ''; state.corrections = []; state.proofScore = 0; state.correctedText = ''; state.selectedCorrection = null; render();
+      try {
+        const result = await proofreadText(state.proofText);
+        state.corrections = result.corrections || [];
+        state.proofScore = result.score || 0;
+        let corrected = state.proofText;
+        (result.corrections || []).forEach(c => { corrected = corrected.replace(c.original, c.corrected); });
+        state.correctedText = corrected;
+      } catch(e) { state.proofError = e.message; }
+      state.proofLoading = false; render();
+    }
+
+    function renderThesis() {
+      if (state.thesisStep === 'setup') return renderThesisSetup();
+      return renderThesisEditor();
+    }
+
+    function renderThesisSetup() {
+      return `<div class="p-6 max-w-3xl mx-auto fade-in">
+        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Thesis Generator</h1><p class="text-gray-500">Structure and draft your thesis with university-compliant templates</p></div>
+        ${state.thesisError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.thesisError}</div>` : ''}
+        <div class="space-y-6 bg-white border border-gray-200 rounded-xl p-6">
+          <div><label class="block text-sm font-medium mb-2">Thesis Topic / Title</label>
+            <input type="text" value="${state.thesisTopic}" oninput="state.thesisTopic=this.value;render()" placeholder="e.g., The Impact of Social Media on Mental Health" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"></div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-sm font-medium mb-2">Degree Level</label>
+              <select oninput="state.thesisDegree=this.value;render()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
+                <option value="">Select...</option>
+                ${['Bachelor','Master','PhD','MPhil','MRes'].map(d => `<option value="${d}" ${state.thesisDegree===d?'selected':''}>${d}</option>`).join('')}
+              </select></div>
+            <div><label class="block text-sm font-medium mb-2">Department / Field</label>
+              <input type="text" value="${state.thesisDept}" oninput="state.thesisDept=this.value;render()" placeholder="e.g., Psychology" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"></div>
+          </div>
+          <div><label class="block text-sm font-medium mb-2">University</label>
+            <select oninput="state.thesisUni=this.value;render()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
+              <option value="">Custom</option>
+              ${Object.entries(UNIVERSITIES).map(([k,v]) => `<option value="${k}" ${state.thesisUni===k?'selected':''}>${v.name}</option>`).join('')}
+            </select>
+            ${state.thesisUni && UNIVERSITIES[state.thesisUni] ? `<div class="mt-2 p-3 bg-gray-100 rounded-lg text-xs text-gray-500"><p class="font-medium text-gray-900 mb-1">Guidelines:</p><ul class="space-y-1">${UNIVERSITIES[state.thesisUni].rules.map(r => `<li>• ${r}</li>`).join('')}</ul></div>` : ''}
+          </div>
+          <button onclick="doGenerateStructure()" class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2" ${state.thesisLoading?'disabled':''}>
+            ${state.thesisLoading ? `<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full spinner"></div> Generating...` : `<i data-lucide="file-text" class="w-5 h-5"></i> Generate Thesis Structure`}
+          </button>
+        </div>
+      </div>`;
+    }
+
+    async function doGenerateStructure() {
+      if (!state.apiKey) { state.thesisError = 'Add API key in Settings'; render(); return; }
+      if (!state.thesisTopic || !state.thesisDegree) { state.thesisError = 'Enter topic and degree'; render(); return; }
+      state.thesisLoading = true; state.thesisError = ''; render();
+      try {
+        const result = await generateThesisStructure(state.thesisTopic, state.thesisDegree, state.thesisDept, state.thesisUni);
+        state.thesisSections = result.structure.map((s, i) => ({
+          id: `section-${i}`, title: s.title, description: s.description, wordCount: s.wordCount,
+          subsections: s.subsections, content: '', notes: '', expanded: i === 0,
+        }));
+        state.thesisTotalWords = result.totalWords;
+        state.thesisStep = 'structure';
+      } catch(e) { state.thesisError = e.message; }
+      state.thesisLoading = false; render();
+    }
+
+    function renderThesisEditor() {
+      const drafted = state.thesisSections.filter(s => s.content.length > 0).length;
+      const total = state.thesisSections.length;
+      const pct = total ? (drafted/total)*100 : 0;
+      return `<div class="p-6 max-w-6xl mx-auto fade-in">
+        <div class="flex items-center justify-between mb-6">
+          <div><h1 class="text-2xl font-bold mb-1">Thesis: ${state.thesisTopic}</h1><p class="text-gray-500">${state.thesisDegree} · ${state.thesisDept || 'General'} · ${state.thesisUni ? UNIVERSITIES[state.thesisUni]?.name : 'Custom'}</p></div>
+          <div class="flex items-center gap-3">
+            <button onclick="addCustomSection()" class="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 flex items-center gap-2"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Section</button>
+            <button onclick="exportToWord()" class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"><i data-lucide="download" class="w-3.5 h-3.5"></i> Export to Word</button>
+          </div>
+        </div>
+        <div class="mb-6 p-4 bg-gray-100 rounded-xl">
+          <div class="flex items-center justify-between text-sm mb-2"><span class="font-medium">Progress</span><span class="text-gray-500">${drafted} / ${total} sections drafted</span></div>
+          <div class="w-full bg-gray-200 rounded-full h-2"><div class="bg-blue-600 h-2 rounded-full transition-all" style="width:${pct}%"></div></div>
+          <p class="text-xs text-gray-400 mt-2">Estimated total: ~${state.thesisTotalWords.toLocaleString()} words</p>
+        </div>
+        ${state.thesisError ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.thesisError}</div>` : ''}
+        <div class="space-y-3">
+          ${state.thesisSections.map(sec => `
+            <div class="border border-gray-200 rounded-xl bg-white overflow-hidden">
+              <button onclick="toggleThesisSection('${sec.id}')" class="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
+                <div class="flex items-center gap-3 text-left">
+                  <i data-lucide="${sec.expanded ? 'chevron-down' : 'chevron-up'}" class="w-[18px] h-[18px]"></i>
+                  <div><h3 class="font-medium">${sec.title}</h3><p class="text-xs text-gray-500">~${sec.wordCount.toLocaleString()} words</p></div>
+                </div>
+                <div class="flex items-center gap-2">
+                  ${sec.content ? '<span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Drafted</span>' : '<span class="text-xs px-2 py-1 bg-gray-100 text-gray-400 rounded-full">Empty</span>'}
+                </div>
+              </button>
+              ${sec.expanded ? `<div class="p-4 border-t border-gray-200 space-y-4 fade-in">
+                <div><p class="text-xs font-medium text-gray-400 mb-1">What this section covers:</p><p class="text-sm text-gray-500">${sec.description}</p></div>
+                ${sec.subsections.length ? `<div><p class="text-xs font-medium text-gray-400 mb-2">Subsections:</p><div class="flex flex-wrap gap-2">${sec.subsections.map(s => `<span class="text-xs px-2 py-1 bg-gray-100 rounded">${s}</span>`).join('')}</div></div>` : ''}
+                <div><label class="text-xs font-medium text-gray-400 mb-1 block">Your Notes & Arguments:</label>
+                  <textarea oninput="updateSectionNotes('${sec.id}',this.value)" placeholder="Add your key points..." class="w-full h-24 p-3 border border-gray-200 rounded-lg bg-gray-50 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-600">${sec.notes || ''}</textarea>
+                </div>
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="text-xs font-medium text-gray-400">Section Content:</label>
+                    <button onclick="doExpandSection('${sec.id}')" class="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1" ${state.currentGenSection===sec.id?'disabled':''}>
+                      ${state.currentGenSection===sec.id ? `<div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full spinner"></div> Generating...` : (sec.content ? 'Regenerate' : 'Generate')}
+                    </button>
+                  </div>
+                  <textarea oninput="updateSectionContent('${sec.id}',this.value)" placeholder="Generated content appears here, or write manually..." class="w-full h-48 p-3 border border-gray-200 rounded-lg bg-gray-50 resize-none text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600">${sec.content || ''}</textarea>
+                  <p class="text-xs text-gray-400 mt-1">${(sec.content||'').split(/\s+/).filter(Boolean).length} words</p>
+                </div>
+              </div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    function toggleThesisSection(id) { state.thesisSections = state.thesisSections.map(s => s.id===id ? {...s, expanded: !s.expanded} : s); render(); }
+    function updateSectionNotes(id, notes) { state.thesisSections = state.thesisSections.map(s => s.id===id ? {...s, notes} : s); }
+    function updateSectionContent(id, content) { state.thesisSections = state.thesisSections.map(s => s.id===id ? {...s, content} : s); }
+    function addCustomSection() {
+      state.thesisSections.push({ id: `custom-${Date.now()}`, title: 'New Section', description: 'Custom section', wordCount: 1000, subsections: [], content: '', notes: '', expanded: true });
+      render();
+    }
+
+    async function doExpandSection(id) {
+      const sec = state.thesisSections.find(s => s.id === id);
+      if (!sec || !state.apiKey) return;
+      state.currentGenSection = id; render();
+      try {
+        const content = await expandSection(sec.title, sec.description, state.thesisTopic, sec.notes);
+        state.thesisSections = state.thesisSections.map(s => s.id === id ? {...s, content, expanded: true} : s);
+      } catch(e) { state.thesisError = e.message; }
+      state.currentGenSection = null; render();
+    }
+
+    function renderSettings() {
+      const selUni = state.university ? UNIVERSITIES[state.university] : null;
+      return `<div class="p-6 max-w-4xl mx-auto fade-in">
+        <div class="mb-6"><h1 class="text-2xl font-bold mb-1">Settings</h1><p class="text-gray-500">Configure your API key, university, and citation preferences</p></div>
+        ${state.settingsSaved ? `<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i>Settings saved!</div>` : ''}
+        <div class="space-y-6">
+          <div class="p-6 bg-white border border-gray-200 rounded-xl">
+            <div class="flex items-center gap-3 mb-4"><div class="p-2 bg-blue-100 rounded-lg"><i data-lucide="key" class="w-5 h-5 text-blue-600"></i></div><div><h2 class="font-semibold">OpenAI API Key</h2><p class="text-xs text-gray-500">Stored in your browser only — never sent anywhere except OpenAI</p></div></div>
+            <div class="relative">
+              <input type="${state.showApiKey?'text':'password'}" value="${state.apiKey}" oninput="state.apiKey=this.value;render()" placeholder="sk-..." class="w-full px-3 py-2 pr-20 border border-gray-200 rounded-lg bg-gray-50 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-600">
+              <button onclick="state.showApiKey=!state.showApiKey;render()" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900 px-2 py-1">${state.showApiKey?'Hide':'Show'}</button>
+            </div>
+            <div class="mt-3 p-3 bg-gray-100 rounded-lg text-xs text-gray-500 space-y-1">
+              <p class="font-medium text-gray-900">How to get an API key:</p>
+              <ol class="list-decimal list-inside space-y-1"><li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 underline">platform.openai.com/api-keys</a></li><li>Sign in or create an account</li><li>Click "Create new secret key"</li><li>Copy and paste it here</li></ol>
+            </div>
+          </div>
+          <div class="p-6 bg-white border border-gray-200 rounded-xl">
+            <div class="flex items-center gap-3 mb-4"><div class="p-2 bg-emerald-100 rounded-lg"><i data-lucide="building" class="w-5 h-5 text-emerald-600"></i></div><div><h2 class="font-semibold">University</h2><p class="text-xs text-gray-500">Select your institution for formatting guidelines</p></div></div>
+            <select oninput="state.university=this.value;render()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
+              <option value="">Custom</option>
+              ${Object.entries(UNIVERSITIES).map(([k,v]) => `<option value="${k}" ${state.university===k?'selected':''}>${v.name}</option>`).join('')}
+            </select>
+            ${selUni ? `<div class="mt-4 p-4 bg-gray-100 rounded-lg space-y-3">
+              <h3 class="text-sm font-medium">${selUni.name} — Guidelines</h3>
+              <div class="grid grid-cols-2 gap-3 text-xs"><div><span class="text-gray-400">Citation:</span><p class="font-medium">${selUni.citationStyle.toUpperCase()}</p></div><div><span class="text-gray-400">Font:</span><p class="font-medium">${selUni.font} ${selUni.fontSize}pt</p></div><div><span class="text-gray-400">Spacing:</span><p class="font-medium">${selUni.lineSpacing}</p></div><div><span class="text-gray-400">Margins:</span><p class="font-medium">T:${selUni.margins.top} B:${selUni.margins.bottom} L:${selUni.margins.left} R:${selUni.margins.right} cm</p></div></div>
+              <div><span class="text-gray-400 text-xs">Structure:</span><div class="flex flex-wrap gap-1 mt-1">${selUni.structure.map(s => `<span class="text-xs px-2 py-0.5 bg-white border border-gray-200 rounded">${s}</span>`).join('')}</div></div>
+              <div><span class="text-gray-400 text-xs">Additional rules:</span><ul class="mt-1 space-y-1">${selUni.rules.map(r => `<li class="text-xs">• ${r}</li>`).join('')}</ul></div>
+            </div>` : ''}
+          </div>
+          <div class="p-6 bg-white border border-gray-200 rounded-xl">
+            <div class="flex items-center gap-3 mb-4"><div class="p-2 bg-violet-100 rounded-lg"><i data-lucide="book-open" class="w-5 h-5 text-violet-600"></i></div><div><h2 class="font-semibold">Default Citation Style</h2><p class="text-xs text-gray-500">Used in Citation Generator and Thesis Export</p></div></div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              ${Object.entries(CITATION_STYLES).map(([k,v]) => `<button onclick="state.citationStyle='${k}';render()" class="p-3 rounded-lg border text-left transition-all ${state.citationStyle===k?'border-blue-600 bg-blue-50':'border-gray-200 bg-gray-50 hover:border-blue-300'}"><p class="text-sm font-medium">${v.name}</p><p class="text-xs text-gray-400 mt-1">In-text: ${v.inText}</p></button>`).join('')}
+            </div>
+          </div>
+          <button onclick="saveAllSettings()" class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide="save" class="w-5 h-5"></i> Save Settings</button>
+        </div>
+      </div>`;
+    }
+
+    function saveAllSettings() {
+      saveSettings();
+      state.settingsSaved = true;
+      setTimeout(() => { state.settingsSaved = false; render(); }, 3000);
+      render();
+    }
+
+    // ============ INIT ============
+    render();
+  </script>
+</body>
+</html>

@@ -134,7 +134,7 @@
           response_format: opts.json ? { type: 'json_object' } : undefined,
         })
       }).then(function(r) {
-        if (!r.ok) return r.json().then(function(e) { throw new Error(e.error.message || 'API error'); });
+        if (!r.ok) return r.json().then(function(e) { throw new Error(e.error && e.error.message ? e.error.message : 'API error ' + r.status); }).catch(function() { throw new Error('API request failed with status ' + r.status); });
         return r.json();
       }).then(function(d) { return d.choices[0].message.content; });
     }
@@ -188,6 +188,10 @@
     // ============ EXPORT TO WORD ============
     function exportToWord() {
       if (!state.thesisSections.length) return;
+      if (typeof docx === 'undefined' || typeof docx.Packer === 'undefined') {
+        alert('Document library is still loading. Please wait a moment and try again.');
+        return;
+      }
       var Document = docx.Document;
       var Packer = docx.Packer;
       var Paragraph = docx.Paragraph;
@@ -235,7 +239,7 @@
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
-        a.download = state.thesisTopic.replace(/[^a-z0-9]/gi, '_').substring(0, 30) + '_thesis.docx';
+        a.download = (state.thesisTopic || 'thesis').replace(/[^a-z0-9]/gi, '_').substring(0, 30) + '_thesis.docx';
         a.click();
         URL.revokeObjectURL(url);
       });
@@ -560,11 +564,16 @@
     }
 
     function copyText(btn) {
-      navigator.clipboard.writeText(btn.getAttribute('data-text') || '');
+      var text = btn.getAttribute('data-text') || '';
+      if (typeof navigator.clipboard !== 'undefined') {
+        navigator.clipboard.writeText(text).catch(function() {});
+      }
     }
     function copyAllBiblio() {
       var text = state.bibliography.map(function(c) { return c.reference; }).join('\n\n');
-      navigator.clipboard.writeText(text);
+      if (typeof navigator.clipboard !== 'undefined') {
+        navigator.clipboard.writeText(text).catch(function() {});
+      }
     }
 
     function renderProofreading() {

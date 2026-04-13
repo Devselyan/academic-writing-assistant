@@ -80,7 +80,6 @@
       activeTool: 'dashboard',
       sidebarCollapsed: false,
       apiKey: localStorage.getItem('awa-api-key') || '',
-      university: localStorage.getItem('awa-university') || '',
       citationStyle: localStorage.getItem('awa-citation') || 'apa',
       writingText: '',
       writingContext: 'academic',
@@ -106,7 +105,6 @@
       thesisTopic: '',
       thesisDegree: '',
       thesisDept: '',
-      thesisUni: '',
       thesisLoading: false,
       thesisError: '',
       thesisSections: [],
@@ -114,15 +112,6 @@
       currentGenSection: null,
       showApiKey: false,
       settingsSaved: false,
-    };
-
-    // ============ UNIVERSITIES ============
-    var UNIVERSITIES = {
-      oxford: { name: 'University of Oxford', citationStyle: 'oscola', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Footnotes for citations','Separate bibliography'] },
-      cambridge: { name: 'University of Cambridge', citationStyle: 'harvard', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, structure: ['Title Page','Abstract','Acknowledgements','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['British English','Harvard referencing','Word count stated'] },
-      harvard: { name: 'Harvard University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, structure: ['Title Page','Abstract','Main Body','References','Appendices'], rules: ['Running head','Page numbers top right','APA 7th edition'] },
-      stanford: { name: 'Stanford University', citationStyle: 'apa', font: 'Times New Roman', fontSize: 12, lineSpacing: 2, structure: ['Title Page','Abstract','TOC','Introduction','Lit Review','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['1-inch min margins','Double-spaced','APA or Chicago'] },
-      mit: { name: 'MIT', citationStyle: 'ieee', font: 'Times New Roman', fontSize: 12, lineSpacing: 1.5, structure: ['Title Page','Abstract','Introduction','Background','Methodology','Results','Discussion','Conclusion','References','Appendices'], rules: ['IEEE style','Clear section numbering'] },
     };
 
     var CITATION_STYLES = {
@@ -184,9 +173,9 @@
       });
     }
 
-    function generateThesisStructure(topic, degree, dept, uni) {
+    function generateThesisStructure(topic, degree, dept) {
       return callOpenAI([{ role: 'user', content:
-        'Create thesis structure for ' + degree + ' in ' + (dept||'General') + ' at ' + (uni||'Custom') + '.\nTopic: "' + topic + '"\n\n' +
+        'Create thesis structure for ' + degree + ' in ' + (dept||'General') + '.\nTopic: "' + topic + '"\n\n' +
         'Return JSON: { "structure": [{"title":"","description":"","wordCount":0,"subsections":[]}], "totalWords": 15000 }'
       }], { json: true }).then(function(c) {
         try { return JSON.parse(c); } catch(e) { return { structure: [], totalWords: 0 }; }
@@ -259,7 +248,6 @@
     // ============ SAVE ============
     function saveSettings() {
       localStorage.setItem('awa-api-key', state.apiKey);
-      localStorage.setItem('awa-university', state.university);
       localStorage.setItem('awa-citation', state.citationStyle);
     }
     function saveBiblio() {
@@ -318,7 +306,7 @@
       if (!state.apiKey) { state.thesisError = 'Add API key in Settings'; render(); return; }
       if (!state.thesisTopic || !state.thesisDegree) { state.thesisError = 'Enter topic and degree'; render(); return; }
       state.thesisLoading = true; state.thesisError = ''; render();
-      generateThesisStructure(state.thesisTopic, state.thesisDegree, state.thesisDept, state.thesisUni).then(function(r) {
+      generateThesisStructure(state.thesisTopic, state.thesisDegree, state.thesisDept).then(function(r) {
         state.thesisSections = r.structure.map(function(s, i) {
           return { id: 'section-' + i, title: s.title, description: s.description, wordCount: s.wordCount, subsections: s.subsections, content: '', notes: '', expanded: i === 0 };
         });
@@ -426,14 +414,14 @@
     function renderDashboard() {
       var tools = [
         { id: 'writing', title: 'Writing Improvement Tool', icon: 'pen-tool', color: 'bg-blue-500', desc: 'Get AI-powered suggestions with clear explanations.', features: ['Clarity','Structure','Tone','Vocabulary','Flow'] },
-        { id: 'citation', title: 'Citations & Formatting', icon: 'book-open', color: 'bg-emerald-500', desc: 'Generate perfectly formatted citations and follow university guidelines.', features: ['7 styles','University templates','Bibliography builder','Format check'] },
+        { id: 'citation', title: 'Citations & Formatting', icon: 'book-open', color: 'bg-emerald-500', desc: 'Generate perfectly formatted citations.', features: ['7 styles','Bibliography builder','Format check','DOI support'] },
         { id: 'proofreading', title: 'Proofreading Tool', icon: 'check-circle', color: 'bg-violet-500', desc: 'Comprehensive grammar, spelling, and style checking.', features: ['Grammar','Spelling','Academic style','Consistency','Scoring'] },
-        { id: 'thesis', title: 'Thesis Generator', icon: 'file-text', color: 'bg-amber-500', desc: 'Structure and draft your thesis. Export to Word.', features: ['Custom structure','Section drafting','Word export','Uni compliance'] },
+        { id: 'thesis', title: 'Thesis Generator', icon: 'file-text', color: 'bg-amber-500', desc: 'Structure and draft your thesis. Export to Word.', features: ['Custom structure','Section drafting','Word export','Citation markers'] },
       ];
       var tips = [
         'Write your first draft yourself, then use tools to improve',
         'Verify all AI-suggested citations against original sources',
-        'Check your university guidelines before final submission',
+        'Always check your institution\'s guidelines before final submission',
         'Use the Writing Assistant to learn, not just to fix text',
       ];
 
@@ -445,17 +433,17 @@
       h += '</div></div>';
       h += '<div class="grid grid-cols-1 md:grid-cols-2 gap-6">';
       tools.forEach(function(t) {
-        h += '<div class="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-all">';
+        h += '<button onclick="setTool(\'' + t.id + '\')" class="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-all text-left cursor-pointer">';
         h += '<div class="flex items-start gap-4 mb-4"><div class="p-3 rounded-lg ' + t.color + ' text-white">' + icon(t.icon, 24) + '</div>';
         h += '<div><h2 class="text-xl font-semibold">' + t.title + '</h2><p class="text-sm text-gray-500 mt-1">' + t.desc + '</p></div></div>';
         h += '<p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Features:</p><div class="flex flex-wrap gap-2">';
         t.features.forEach(function(f) { h += '<span class="text-xs px-2 py-1 bg-gray-100 rounded-md text-gray-500">' + f + '</span>'; });
-        h += '</div></div>';
+        h += '</div></button>';
       });
       h += '</div>';
       h += '<div class="mt-8 p-6 bg-gray-100 rounded-xl"><h2 class="text-lg font-semibold mb-3">Getting Started</h2><ol class="space-y-2 text-gray-500">';
       h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span><span>Go to <strong class="text-gray-900">Settings</strong> and add your OpenAI API key</span></li>';
-      h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span><span>Select your university or use custom settings</span></li>';
+      h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span><span>Choose a citation style for your work</span></li>';
       h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span><span>Choose a tool from the sidebar and paste your writing</span></li>';
       h += '<li class="flex items-start gap-2"><span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span><span>Review suggestions and learn from the explanations</span></li>';
       h += '</ol></div></div>';
@@ -645,18 +633,6 @@
       h += '<div><label class="block text-sm font-medium mb-2">Department / Field</label>';
       h += '<input type="text" id="tdept" value="' + escHtml(state.thesisDept) + '" placeholder="e.g., Psychology" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"></div>';
       h += '</div>';
-      h += '<div><label class="block text-sm font-medium mb-2">University</label>';
-      h += '<select id="tuni" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">';
-      h += '<option value="">Custom</option>';
-      Object.keys(UNIVERSITIES).forEach(function(k) { h += '<option value="' + k + '"' + (state.thesisUni===k?' selected':'') + '>' + UNIVERSITIES[k].name + '</option>'; });
-      h += '</select>';
-      if (state.thesisUni && UNIVERSITIES[state.thesisUni]) {
-        var u = UNIVERSITIES[state.thesisUni];
-        h += '<div class="mt-2 p-3 bg-gray-100 rounded-lg text-xs text-gray-500"><p class="font-medium text-gray-900 mb-1">Guidelines:</p><ul class="space-y-1">';
-        u.rules.forEach(function(r) { h += '<li>&bull; ' + escHtml(r) + '</li>'; });
-        h += '</ul></div>';
-      }
-      h += '</div>';
       h += '<button onclick="doGenerateStructure()" class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2"' + (state.thesisLoading?' disabled':'') + '>';
       if (state.thesisLoading) h += '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full spin"></div> Generating...';
       else h += icon('file-text') + ' Generate Thesis Structure';
@@ -668,12 +644,11 @@
       var drafted = state.thesisSections.filter(function(s) { return s.content.length > 0; }).length;
       var total = state.thesisSections.length;
       var pct = total ? Math.round((drafted / total) * 100) : 0;
-      var uniName = state.thesisUni && UNIVERSITIES[state.thesisUni] ? UNIVERSITIES[state.thesisUni].name : 'Custom';
 
       var h = '<div class="p-6 max-w-6xl mx-auto fade-in">';
       h += '<div class="flex items-center justify-between mb-6"><div>';
       h += '<h1 class="text-2xl font-bold mb-1">Thesis: ' + escHtml(state.thesisTopic) + '</h1>';
-      h += '<p class="text-gray-500">' + escHtml(state.thesisDegree) + ' &middot; ' + escHtml(state.thesisDept || 'General') + ' &middot; ' + escHtml(uniName) + '</p></div>';
+      h += '<p class="text-gray-500">' + escHtml(state.thesisDegree) + ' &middot; ' + escHtml(state.thesisDept || 'General') + '</p></div>';
       h += '<div class="flex items-center gap-3">';
       h += '<button onclick="addCustomSection()" class="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 flex items-center gap-2">' + icon('plus') + ' Add Section</button>';
       h += '<button onclick="exportToWord()" class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">' + icon('download') + ' Export to Word</button>';
@@ -719,9 +694,8 @@
     }
 
     function renderSettings() {
-      var selUni = state.university ? UNIVERSITIES[state.university] : null;
       var h = '<div class="p-6 max-w-4xl mx-auto fade-in">';
-      h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Settings</h1><p class="text-gray-500">Configure your API key, university, and citation preferences</p></div>';
+      h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Settings</h1><p class="text-gray-500">Configure your API key and citation preferences</p></div>';
       if (state.settingsSaved) h += '<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">' + icon('check-circle', 16) + ' Settings saved!</div>';
       // API Key
       h += '<div class="space-y-6">';
@@ -734,29 +708,6 @@
       h += '<div class="mt-3 p-3 bg-gray-100 rounded-lg text-xs text-gray-500 space-y-1">';
       h += '<p class="font-medium text-gray-900">How to get an API key:</p>';
       h += '<ol class="list-decimal list-inside space-y-1"><li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 underline">platform.openai.com/api-keys</a></li><li>Sign in or create an account</li><li>Click "Create new secret key"</li><li>Copy and paste it here</li></ol></div></div>';
-      // University
-      h += '<div class="p-6 bg-white border border-gray-200 rounded-xl">';
-      h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-emerald-100 rounded-lg">' + icon('building') + '</div><div><h2 class="font-semibold">University</h2><p class="text-xs text-gray-500">Select your institution for formatting guidelines</p></div></div>';
-      h += '<select id="uni" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">';
-      h += '<option value="">Custom</option>';
-      Object.keys(UNIVERSITIES).forEach(function(k) { h += '<option value="' + k + '"' + (state.university===k?' selected':'') + '>' + UNIVERSITIES[k].name + '</option>'; });
-      h += '</select>';
-      if (selUni) {
-        h += '<div class="mt-4 p-4 bg-gray-100 rounded-lg space-y-3">';
-        h += '<h3 class="text-sm font-medium">' + escHtml(selUni.name) + ' &mdash; Guidelines</h3>';
-        h += '<div class="grid grid-cols-2 gap-3 text-xs">';
-        h += '<div><span class="text-gray-400">Citation:</span><p class="font-medium">' + selUni.citationStyle.toUpperCase() + '</p></div>';
-        h += '<div><span class="text-gray-400">Font:</span><p class="font-medium">' + escHtml(selUni.font) + ' ' + selUni.fontSize + 'pt</p></div>';
-        h += '<div><span class="text-gray-400">Spacing:</span><p class="font-medium">' + selUni.lineSpacing + '</p></div>';
-        h += '</div>';
-        h += '<div><span class="text-gray-400 text-xs">Structure:</span><div class="flex flex-wrap gap-1 mt-1">';
-        selUni.structure.forEach(function(s) { h += '<span class="text-xs px-2 py-0.5 bg-white border border-gray-200 rounded">' + escHtml(s) + '</span>'; });
-        h += '</div></div>';
-        h += '<div><span class="text-gray-400 text-xs">Additional rules:</span><ul class="mt-1 space-y-1">';
-        selUni.rules.forEach(function(r) { h += '<li class="text-xs">&bull; ' + escHtml(r) + '</li>'; });
-        h += '</ul></div></div>';
-      }
-      h += '</div>';
       // Citation Style
       h += '<div class="p-6 bg-white border border-gray-200 rounded-xl">';
       h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-violet-100 rounded-lg">' + icon('book-open') + '</div><div><h2 class="font-semibold">Default Citation Style</h2><p class="text-xs text-gray-500">Used in Citation Generator and Thesis Export</p></div></div>';
@@ -785,9 +736,7 @@
         ttopic: function(v) { state.thesisTopic = v; },
         tdegree: function(v) { state.thesisDegree = v; },
         tdept: function(v) { state.thesisDept = v; },
-        tuni: function(v) { state.thesisUni = v; },
         apikey: function(v) { state.apiKey = v; },
-        uni: function(v) { state.university = v; },
       };
       Object.keys(els).forEach(function(id) {
         var el = document.getElementById(id);

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Academic Writing Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/docx@9.5.1/build/index.umd.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -88,7 +89,7 @@
       citationLoading: false,
       citationError: '',
       lastCitation: null,
-      bibliography: JSON.parse(localStorage.getItem('awa-biblio') || '[]'),
+      bibliography: (function() { try { return JSON.parse(localStorage.getItem('awa-biblio') || '[]'); } catch(e) { return []; } })(),
       proofText: '',
       corrections: [],
       proofScore: 0,
@@ -251,6 +252,7 @@
 
     // ============ ACTIONS ============
     function doAnalyze() {
+      syncStateFromDOM();
       if (!state.apiKey) { state.writingError = 'Add your API key in Settings first'; render(); return; }
       if (!state.writingText.trim()) { state.writingError = 'Enter some text to analyze'; render(); return; }
       state.writingLoading = true; state.writingError = ''; state.suggestions = []; state.selectedSuggestion = null; render();
@@ -260,6 +262,7 @@
     }
 
     function doGenerateCitation() {
+      syncStateFromDOM();
       if (!state.apiKey) { state.citationError = 'Add API key in Settings'; render(); return; }
       if (!state.citationSource.trim()) { state.citationError = 'Enter source info'; render(); return; }
       state.citationLoading = true; state.citationError = ''; state.lastCitation = null; render();
@@ -283,6 +286,7 @@
     }
 
     function doProofread() {
+      syncStateFromDOM();
       if (!state.apiKey) { state.proofError = 'Add API key in Settings'; render(); return; }
       if (!state.proofText.trim()) { state.proofError = 'Enter some text'; render(); return; }
       state.proofLoading = true; state.proofError = ''; state.corrections = []; state.proofScore = 0; state.correctedText = ''; state.selectedCorrection = null; render();
@@ -298,6 +302,7 @@
     }
 
     function doGenerateStructure() {
+      syncStateFromDOM();
       if (!state.apiKey) { state.thesisError = 'Add API key in Settings'; render(); return; }
       if (!state.thesisTopic || !state.thesisDegree) { state.thesisError = 'Enter topic and degree'; render(); return; }
       state.thesisLoading = true; state.thesisError = ''; render();
@@ -313,6 +318,7 @@
     }
 
     function doExpandSection(id) {
+      syncStateFromDOM();
       var sec = state.thesisSections.find(function(s) { return s.id === id; });
       if (!sec || !state.apiKey) return;
       state.currentGenSection = id; render();
@@ -476,9 +482,9 @@
         h += '<div class="flex-1 overflow-y-auto space-y-3 pr-2">';
         state.suggestions.forEach(function(s) {
           var sel = state.selectedSuggestion === s.id;
-          h += '<button class="w-full text-left p-4 rounded-xl border transition-all ' + (sel ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300') + '" onclick="state.selectedSuggestion=state.selectedSuggestion===\'' + s.id + '\'?null:\'' + s.id + '\';render();">';
-          h += '<div class="flex items-start justify-between gap-2 mb-2"><div class="flex items-center gap-2">' + icon(typeIcons[s.type]||'alert-circle', 16) + '<span class="text-xs font-medium uppercase tracking-wide text-gray-400">' + s.type + '</span></div>';
-          h += '<span class="text-xs px-2 py-0.5 rounded-full border ' + sevColors[s.severity] + '">' + s.severity + '</span></div>';
+          h += '<button class="w-full text-left p-4 rounded-xl border transition-all ' + (sel ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300') + '" onclick="state.selectedSuggestion=state.selectedSuggestion===\'' + String(s.id).replace(/'/g, "\\'") + '\'?null:\'' + String(s.id).replace(/'/g, "\\'") + '\';render();">';
+          h += '<div class="flex items-start justify-between gap-2 mb-2"><div class="flex items-center gap-2">' + icon(typeIcons[s.type] || 'alert-circle', 16) + '<span class="text-xs font-medium uppercase tracking-wide text-gray-400">' + escHtml(s.type) + '</span></div>';
+          h += '<span class="text-xs px-2 py-0.5 rounded-full border ' + (sevColors[s.severity] || 'bg-gray-100 text-gray-700 border-gray-200') + '">' + escHtml(s.severity) + '</span></div>';
           h += '<p class="text-sm text-gray-400 line-clamp-2 mb-1">"' + escHtml(s.original) + '"</p>';
           if (sel) {
             h += '<div class="mt-3 pt-3 border-t border-blue-200 space-y-3 fade-in">';
@@ -594,10 +600,11 @@
         h += '<div class="mt-6"><h3 class="text-sm font-medium mb-3">Detailed Corrections</h3><div class="space-y-3">';
         state.corrections.forEach(function(c, i) {
           var sel = state.selectedCorrection === i;
+          var ctype = c.type || 'unknown';
           h += '<div class="p-4 rounded-xl border cursor-pointer transition-all ' + (sel ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300') + '" onclick="state.selectedCorrection=state.selectedCorrection===' + i + '?null:' + i + ';render();">';
-          h += '<span class="text-xs px-2 py-0.5 rounded-full border ' + (typeColors[c.type]||'bg-gray-100 text-gray-700 border-gray-200') + '">' + c.type.replace(/_/g, ' ') + '</span>';
-          h += '<div class="grid grid-cols-2 gap-4 mt-2"><div><p class="text-xs text-gray-400 mb-1">Original:</p><p class="text-sm line-through text-red-600">' + escHtml(c.original) + '</p></div>';
-          h += '<div><p class="text-xs text-gray-400 mb-1">Corrected:</p><p class="text-sm text-green-600 flex items-center gap-1">' + icon('arrow-right') + escHtml(c.corrected) + '</p></div></div>';
+          h += '<span class="text-xs px-2 py-0.5 rounded-full border ' + (typeColors[ctype] || 'bg-gray-100 text-gray-700 border-gray-200') + '">' + ctype.replace(/_/g, ' ') + '</span>';
+          h += '<div class="grid grid-cols-2 gap-4 mt-2"><div><p class="text-xs text-gray-400 mb-1">Original:</p><p class="text-sm line-through text-red-600">' + escHtml(c.original || '') + '</p></div>';
+          h += '<div><p class="text-xs text-gray-400 mb-1">Corrected:</p><p class="text-sm text-green-600 flex items-center gap-1">' + icon('arrow-right') + escHtml(c.corrected || '') + '</p></div></div>';
           if (sel) h += '<div class="mt-2 pt-2 border-t border-blue-200 fade-in"><p class="text-xs font-medium text-gray-400 mb-1">Explanation:</p><p class="text-sm">' + escHtml(c.explanation) + '</p></div>';
           h += '</div>';
         });
@@ -657,18 +664,21 @@
       // Sections
       h += '<div class="space-y-3">';
       state.thesisSections.forEach(function(sec) {
+        var subs = Array.isArray(sec.subsections) ? sec.subsections : [];
+        var wc = typeof sec.wordCount === 'number' ? sec.wordCount : 0;
+        var hasContent = sec.content && sec.content.length > 0;
         h += '<div class="border border-gray-200 rounded-xl bg-white overflow-hidden">';
         h += '<button onclick="toggleThesisSection(\'' + sec.id + '\')" class="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">';
         h += '<div class="flex items-center gap-3 text-left">' + icon(sec.expanded ? 'chevron-down' : 'chevron-up');
-        h += '<div><h3 class="font-medium">' + escHtml(sec.title) + '</h3><p class="text-xs text-gray-500">~' + sec.wordCount.toLocaleString() + ' words</p></div></div>';
-        h += '<div>' + (sec.content ? '<span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Drafted</span>' : '<span class="text-xs px-2 py-1 bg-gray-100 text-gray-400 rounded-full">Empty</span>') + '</div>';
+        h += '<div><h3 class="font-medium">' + escHtml(sec.title) + '</h3><p class="text-xs text-gray-500">~' + wc.toLocaleString() + ' words</p></div></div>';
+        h += '<div>' + (hasContent ? '<span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Drafted</span>' : '<span class="text-xs px-2 py-1 bg-gray-100 text-gray-400 rounded-full">Empty</span>') + '</div>';
         h += '</button>';
         if (sec.expanded) {
           h += '<div class="p-4 border-t border-gray-200 space-y-4 fade-in">';
           h += '<div><p class="text-xs font-medium text-gray-400 mb-1">What this section covers:</p><p class="text-sm text-gray-500">' + escHtml(sec.description) + '</p></div>';
-          if (sec.subsections.length) {
+          if (subs.length) {
             h += '<div><p class="text-xs font-medium text-gray-400 mb-2">Subsections:</p><div class="flex flex-wrap gap-2">';
-            sec.subsections.forEach(function(s) { h += '<span class="text-xs px-2 py-1 bg-gray-100 rounded">' + escHtml(s) + '</span>'; });
+            subs.forEach(function(s) { h += '<span class="text-xs px-2 py-1 bg-gray-100 rounded">' + escHtml(s) + '</span>'; });
             h += '</div></div>';
           }
           h += '<div><label class="text-xs font-medium text-gray-400 mb-1 block">Your Notes & Arguments:</label>';
@@ -720,32 +730,17 @@
       return h;
     }
 
-    // ============ READ INPUTS ON RENDER ============
-    function syncInputs() {
-      var els = {
-        wtext: function(v) { state.writingText = v; },
-        wctx: function(v) { state.writingContext = v; },
-        csrc: function(v) { state.citationSource = v; },
-        cstyle: function(v) { state.citationStyleSelect = v; },
-        ptext: function(v) { state.proofText = v; },
-        ttopic: function(v) { state.thesisTopic = v; },
-        tdegree: function(v) { state.thesisDegree = v; },
-        tdept: function(v) { state.thesisDept = v; },
-        apikey: function(v) { state.apiKey = v; },
-      };
-      Object.keys(els).forEach(function(id) {
+    // ============ READ INPUTS FROM DOM ============
+    function syncStateFromDOM() {
+      var map = { wtext: 'writingText', wctx: 'writingContext', csrc: 'citationSource', cstyle: 'citationStyleSelect', ptext: 'proofText', ttopic: 'thesisTopic', tdegree: 'thesisDegree', tdept: 'thesisDept', apikey: 'apiKey' };
+      Object.keys(map).forEach(function(id) {
         var el = document.getElementById(id);
-        if (el) {
-          el.addEventListener('input', function() { els[id](el.value); });
-          // For select, also fire on change
-          if (el.tagName === 'SELECT') el.addEventListener('change', function() { els[id](el.value); });
-        }
+        if (el) state[map[id]] = el.value;
       });
     }
 
     // ============ INIT ============
     render();
-    syncInputs();
   </script>
 </body>
 </html>

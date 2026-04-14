@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src https://api.openai.com; referrer-policy strict-origin-when-cross-origin">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Academic Writing Assistant</title>
   <script src="https://cdn.tailwindcss.com" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/docx@9.5.1/build/index.umd.js" crossorigin="anonymous"></script>
@@ -64,6 +66,7 @@
       'key': '<svg xmlns="http://www.w3.org/2000/svg" width="SIZE" height="SIZE" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>',
       'building': '<svg xmlns="http://www.w3.org/2000/svg" width="SIZE" height="SIZE" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>',
       'sparkles': '<svg xmlns="http://www.w3.org/2000/svg" width="SIZE" height="SIZE" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>',
+      'shield': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
     };
 
     function icon(name, size) {
@@ -75,7 +78,9 @@
     var state = {
       activeTool: 'dashboard',
       sidebarCollapsed: false,
-      apiKey: localStorage.getItem('awa-api-key') || '',
+      apiKey: '',
+      useSessionStorage: localStorage.getItem('awa-session') === '1',
+      keyError: '',
       citationStyle: localStorage.getItem('awa-citation') || 'apa',
       writingText: '',
       writingContext: 'academic',
@@ -245,10 +250,49 @@
       });
     }
 
+    // ============ SECURITY ============
+    function validateApiKey(key) {
+      // OpenAI keys start with 'sk-'
+      return typeof key === 'string' && key.length >= 10 && key.indexOf('sk-') === 0;
+    }
+    function loadApiKey() {
+      var stored = sessionStorage.getItem('awa-api-key') || localStorage.getItem('awa-api-key') || '';
+      return validateApiKey(stored) ? stored : '';
+    }
+    function saveApiKey(key) {
+      if (!validateApiKey(key) && key !== '') {
+        throw new Error('Invalid API key format. Keys must start with "sk-"');
+      }
+      if (state.useSessionStorage) {
+        sessionStorage.setItem('awa-api-key', key);
+        localStorage.removeItem('awa-api-key');
+      } else {
+        localStorage.setItem('awa-api-key', key);
+        sessionStorage.removeItem('awa-api-key');
+      }
+    }
+    function clearApiKey() {
+      state.apiKey = '';
+      localStorage.removeItem('awa-api-key');
+      sessionStorage.removeItem('awa-api-key');
+    }
+    function maskApiKey(key) {
+      if (!key) return '';
+      if (key.length <= 8) return '••••••••';
+      return 'sk-••••••••••' + key.slice(-4);
+    }
+
     // ============ SAVE ============
     function saveSettings() {
-      localStorage.setItem('awa-api-key', state.apiKey);
+      if (state.apiKey && validateApiKey(state.apiKey)) {
+        saveApiKey(state.apiKey);
+      } else if (state.apiKey && !validateApiKey(state.apiKey)) {
+        state.keyError = 'Invalid API key format. Keys must start with "sk-"';
+        return;
+      }
+      state.keyError = '';
       localStorage.setItem('awa-citation', state.citationStyle);
+      localStorage.setItem('awa-session', state.useSessionStorage ? '1' : '0');
     }
     function saveBiblio() {
       localStorage.setItem('awa-biblio', JSON.stringify(state.bibliography));
@@ -714,20 +758,33 @@
     }
 
     function renderSettings() {
+      var hasKey = state.apiKey && validateApiKey(state.apiKey);
       var h = '<div class="p-6 max-w-4xl mx-auto fade-in">';
       h += '<div class="mb-6"><h1 class="text-2xl font-bold mb-1">Settings</h1><p class="text-gray-500">Configure your API key and citation preferences</p></div>';
       if (state.settingsSaved) h += '<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">' + icon('check-circle', 16) + ' Settings saved!</div>';
+      if (state.keyError) h += '<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">' + icon('alert-circle', 16) + ' ' + escHtml(state.keyError) + '</div>';
       // API Key
       h += '<div class="space-y-6">';
       h += '<div class="p-6 bg-white border border-gray-200 rounded-xl">';
-      h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-blue-100 rounded-lg">' + icon('key') + '</div><div><h2 class="font-semibold">OpenAI API Key</h2><p class="text-xs text-gray-500">Stored in your browser only</p></div></div>';
+      h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-blue-100 rounded-lg">' + icon('key') + '</div><div><h2 class="font-semibold">OpenAI API Key</h2><p class="text-xs text-gray-500">Stored in your browser only — never sent anywhere except OpenAI</p></div></div>';
       h += '<div class="relative">';
       h += '<input type="' + (state.showApiKey ? 'text' : 'password') + '" id="apikey" value="' + escHtml(state.apiKey) + '" placeholder="sk-..." class="w-full px-3 py-2 pr-20 border border-gray-200 rounded-lg bg-gray-50 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-600">';
-      h += '<button onclick="state.showApiKey=!state.showApiKey;render()" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900 px-2 py-1">' + (state.showApiKey ? 'Hide' : 'Show') + '</button>';
-      h += '</div>';
+      h += '<div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">';
+      h += '<button onclick="state.showApiKey=!state.showApiKey;render()" class="text-xs text-gray-500 hover:text-gray-900 px-2 py-1">' + (state.showApiKey ? 'Hide' : 'Show') + '</button>';
+      if (hasKey) {
+        h += '<button onclick="if(confirm(\'Are you sure you want to remove your API key?\')){clearApiKey();render()}" class="text-xs text-red-500 hover:text-red-700 px-2 py-1">Clear</button>';
+      }
+      h += '</div></div>';
+      // Masked key display
+      if (hasKey && !state.showApiKey) {
+        h += '<div class="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700 font-mono flex items-center justify-between"><span>' + maskApiKey(state.apiKey) + '</span><span class="flex items-center gap-1">' + icon('check-circle', 14) + ' Connected</span></div>';
+      }
+      // Storage options
+      h += '<div class="mt-4 flex items-center gap-3"><label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" id="usesession" ' + (state.useSessionStorage ? 'checked' : '') + ' class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">Clear key when tab closes</label></div>';
       h += '<div class="mt-3 p-3 bg-gray-100 rounded-lg text-xs text-gray-500 space-y-1">';
       h += '<p class="font-medium text-gray-900">How to get an API key:</p>';
-      h += '<ol class="list-decimal list-inside space-y-1"><li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 underline">platform.openai.com/api-keys</a></li><li>Sign in or create an account</li><li>Click "Create new secret key"</li><li>Copy and paste it here</li></ol></div></div>';
+      h += '<ol class="list-decimal list-inside space-y-1"><li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 underline">platform.openai.com/api-keys</a></li><li>Sign in or create an account</li><li>Click "Create new secret key"</li><li>Copy and paste it here</li></ol></div>';
+      h += '<div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 space-y-1"><p class="font-medium">' + icon('shield') + ' Security</p><ul class="list-disc list-inside space-y-0.5"><li>Key is validated locally before saving (must start with <code class="bg-blue-100 px-1 rounded">sk-</code>)</li><li>Key is only transmitted in the Authorization header to api.openai.com</li><li>Key is masked in the UI — only you can see the full value</li><li>No server, no database, no tracking — everything is client-side</li></ul></div></div>';
       // Citation Style
       h += '<div class="p-6 bg-white border border-gray-200 rounded-xl">';
       h += '<div class="flex items-center gap-3 mb-4"><div class="p-2 bg-violet-100 rounded-lg">' + icon('quote') + '</div><div><h2 class="font-semibold">Default Citation Style</h2><p class="text-xs text-gray-500">Used in Citation Generator and Thesis Export</p></div></div>';
@@ -752,9 +809,12 @@
         var el = document.getElementById(id);
         if (el) state[map[id]] = el.value;
       });
+      var sessionEl = document.getElementById('usesession');
+      if (sessionEl) state.useSessionStorage = sessionEl.checked;
     }
 
     // ============ INIT ============
+    state.apiKey = loadApiKey();
     render();
   </script>
 </body>
